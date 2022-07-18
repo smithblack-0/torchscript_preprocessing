@@ -32,7 +32,7 @@ class Pipeline():
                  root: astroid.Module,
                  **kwargs) -> astroid.NodeNG:
         for transform in self.transforms:
-            transform(node, root, self, **kwargs)
+            node = transform(node, root, self, **kwargs)
         return node
 
 
@@ -153,7 +153,7 @@ class {name}():
     while len(transplant) > 0:
         item = transplant.pop(0)
         item.parent = source_extractor
-    source_extractor.body = transplant
+        source_extractor.body.append(item)
     call_source = source_extractor.as_string()
     call_source = call_source.split('\n')
     call_source = [call_source_template.format(name=item) for item in call_source]
@@ -191,8 +191,8 @@ class {name}():
     passthroughs = ""
     passthrough_template = "{name}, "
     for item in environmental:
-        name, type = item
-        passthroughs = passthroughs + passthrough_template.format(name=name)
+        item_name, type = item
+        passthroughs = passthroughs + passthrough_template.format(name=item_name)
     indirection = indirection.format(var_name=node.name,
                                      class_name=name,
                                      environment_passthroughs=passthroughs)
@@ -205,8 +205,8 @@ class {name}():
 
     ## Run everything from here with the new virtual root.
 
-    _, virtual_root = pipeline(proxy_tree, virtual_root)
-    return indirection, virtual_root
+    pipeline(proxy_tree, virtual_root)
+    return indirection
 
 def walk(node: astroid.NodeNG, root: astroid.Module, pipeline : Pipeline, **kwargs):
     """
@@ -220,21 +220,7 @@ def walk(node: astroid.NodeNG, root: astroid.Module, pipeline : Pipeline, **kwar
     :param kwargs:
     :return:
     """
-    def get_next_sibling(node: astroid.NodeNG):
-        parent = node.parent
-        if parent is None:
-            return None
-        breakflag = False
-        for item in parent.get_children():
-            if breakflag is True:
-                return item
-            if item is node:
-                breakflag = True
-        return None
-
-    child = next(node.get_children())
-    while child is not None:
-        child, root = pipeline(child, root)
-        child = get_next_sibling(child)
-
+    output = []
+    for child in node.get_children():
+        child = pipeline(child, root)
 

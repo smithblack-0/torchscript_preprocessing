@@ -2,6 +2,8 @@ from typing import *
 import transforms
 import astroid
 import inspect
+import torch
+
 def funct():
     outer = 4
     item3 = 6
@@ -11,7 +13,7 @@ def funct():
             return 34
         item: int = 3
         lambda_func = lambda x: x
-        def test_deeper_internals():
+        def test_deeper_internals(a: torch.tensor):
             return 3
             def even_deeper():
                 pass
