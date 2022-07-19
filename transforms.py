@@ -13,27 +13,9 @@ import builtins
 import copy
 
 import astroid
-import astor
 from typing import Callable, List, Tuple
 
 
-class Pipeline():
-    """
-
-    A pipeline applies a sequence of transforms to a node, then
-    returns the result.
-
-    """
-
-    def __init__(self, transforms: List[Callable]):
-        self.transforms = transforms
-    def __call__(self,
-                 node: astroid.NodeNG,
-                 root: astroid.Module,
-                 **kwargs) -> astroid.NodeNG:
-        for transform in self.transforms:
-            node = transform(node, root, self, **kwargs)
-        return node
 
 
 def extract_inline_functions(

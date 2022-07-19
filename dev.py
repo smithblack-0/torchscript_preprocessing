@@ -4,6 +4,14 @@ import astroid
 import inspect
 import torch
 
+print("here")
+
+@torch.script
+def tryitout(input: int):
+    return int
+
+
+
 def funct():
     outer = 4
     item3 = 6
