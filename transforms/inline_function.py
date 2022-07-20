@@ -1,6 +1,7 @@
 import astroid
-from utilities import Transform
-from utilities import Processor
+from .utilities import Transform
+from .utilities import Processor
+from typing import List, Tuple
 
 class Inline_Function(Transform):
     """
@@ -71,13 +72,13 @@ class PROXY_{name}():
 
     def __init__(self):
         super().__init__()
-    def __call__(self, node: astroid.NodeNG, processor: Processor) -> astroid.NodeNG:
+    def __call__(self, node: astroid.NodeNG, processor: Processor) -> Tuple[astroid.NodeNG, bool]:
         if not isinstance(node, astroid.FunctionDef):
             ## Ignore anything not a function def
-            return node
+            return node, False
         if isinstance(node.parent, (astroid.ClassDef, astroid.Module)):
             ## Ignore if the parent is a class or a module. No need to extract.
-            return node
+            return node, False
 
         #Go fetch the environmental variables.
         environmental = self.extract_environmental_args(node, node)
@@ -131,8 +132,11 @@ class PROXY_{name}():
         class_tree = astroid.parse(class_source)
         class_tree = class_tree.body[0]
 
-        #Insert the new class into the tree, then apply indirection
+        #Insert the new class into the tree, apply indirection to original node, then
+        #return modified flag and class tree to indicate compilation should continue from
+        #there.
 
-        ancestor = processor.get_ancestor_from_top(node, 1)
-        _, front_node = processor.insert_sibling_in_front(ancestor, [class_tree], 0)
-        return processor(front_node)
+        ancestor = self.get_ancestor_from_top(node, 1)
+        class_tree.parent = ancestor.parent
+        inserted = self.insert_sibling_in_front(ancestor, [class_tree], 0)
+        return inserted, True

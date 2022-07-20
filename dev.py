@@ -3,13 +3,9 @@ import transforms
 import astroid
 import inspect
 import torch
+from transforms import utilities, inline_function
 
 print("here")
-
-@torch.script
-def tryitout(input: int):
-    return int
-
 
 
 def funct():
@@ -29,13 +25,14 @@ def funct():
     return test_internal
 
 
+
+
 code = inspect.getsource(funct)
 tree = astroid.parse(code)
 print("prior")
 print(tree.as_string())
-trans = [transforms.extract_inline_functions, transforms.walk]
-pipeline = transforms.Pipeline(trans)
-transforms.walk(tree, tree, pipeline)
-
+trans =  [transforms.inline_function.Inline_Function()]
+processor = utilities.Processor(trans)
+new_tree = processor(tree)
 print("post")
-print(tree.as_string())
+print(new_tree[0].root().as_string())
