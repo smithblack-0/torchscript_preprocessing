@@ -8,13 +8,8 @@ They operate per module, and are fed the module pipeline,
 the top level tree, and the current node.
 
 """
-import ast
-import builtins
-import copy
-
 import astroid
 from typing import Callable, List, Tuple
-
 
 
 
