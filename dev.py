@@ -1,18 +1,22 @@
-from typing import *
-import transforms
-import astroid
-import inspect
+import importlib
+import sys
+from importlib.machinery import ModuleSpec
+from typing import Sequence, Optional
+
+print(sys.meta_path)
+
+class tempcodeMockfinder(importlib.abc.MetaPathFinder):
+    def find_spec(self,
+                  fullname,
+                  path,
+                  target=None) -> Optional[ModuleSpec]:
+        print(fullname, path, target)
+        return None
+
+if tempcodeMockfinder in sys.meta_path:
+    index = sys.meta_path.index(tempcodeMockfinder)
+    sys.meta_path.pop(index)
+sys.meta_path.append(tempcodeMockfinder)
+
 import torch
-from torch.jit import frontend
-from torch import _jit_internal
-from torch.jit.frontend import ClassDef
-from main import other
-
-
-
-class inherit(other):
-    callback = _jit_internal.createResolutionCallbackFromFrame(1)
-
-item = frontend.get_jit_class_def(inherit, 'self')
-print(dir(item))
-print(item)
+import thingy as item
