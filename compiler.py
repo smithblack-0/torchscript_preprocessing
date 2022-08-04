@@ -1,11 +1,9 @@
 import ast
-import ast
 import inspect
 import pathlib
 import warnings
 import string
 import torch
-import astroid
 import sys
 from collections import namedtuple
 from torch import _sources
@@ -667,24 +665,139 @@ class CompileControlMixin(AbstractCompileLibMixin):
 
     It replaces much of the logic of the script frontend.
     """
+    @staticmethod
+    def fetch_argument_context(ctx: FunctionSupportContext, node: astroid.Arguments, name: str):
+        """ arguments in astroid are a little more inconvinent. We must build ranges manually"""
 
+        source = node.root().as_string()
+        start = node.parent.lineno
+        sourcelines = source.splitlines()[start:]
+        index = -1
+        lineno = 0
+        for lineno, line in enumerate(sourcelines):
+            index = line.find(name)
+            if index is not -1:
+                break
+        assert index != -1
+        context = ctx.make_range(start + lineno, index, index + len(name))
+        return context
+    @staticmethod
+    def parse_subscript(node: astroid.Arguments, node_collection: astroid.NodeNG):
+        """Attempts to convert a subscript node back into working types"""
+
+
+    def build_Argument(self, ctx: FunctionSupportContext, node: astroid.Arguments):
+        """Builds an argument node, returning a bunch of parameters"""
+
+        #A significant amount of sanitation is required. In particular
+        #anything related to *args or **kwargs is rejected.
+        #Todo: Verify error handling functioning correctly
+        if node.kwarg is not None:
+            #TODO: Impliment a starred keyword case with annotations. Modify build_Call
+            ctx_range = self.fetch_argument_context(ctx,node,node.kwarg)
+            raise NotSupportedError(ctx_range, "Starred keyword arguments are not yet supported")
+        if node.vararg is not None:
+            #TODO: Impliment a starred arg with annotation. Modify build_Call
+            ctx_range = self.fetch_argument_context(ctx, node, node.vararg)
+        if len(node.kw_defaults) > 0:
+            # kw_defaults is a list of the values for the kwargs (which default to None),
+            # so they don't actually have line numbers.
+            for arg in node.kw_defaults:
+                if arg is not None:
+                    ctx_range = self.fetch_argument_context(ctx, node, arg)
+                    raise NotSupportedError(ctx_range, "default keyword arguments for **kwargs not none. This is not supported")
+
+        #Collect annotations as best as is possible.
+        annotations = []
+        for i, ann in enumerate(node.annotations):
+            if ann is not None:
+                annotations.append(ann)
+                continue
+            elif node.type_comment_args is not None and node.type_comment_args[i] is not None:
+                annotations.append(node.type_comment_args[i])
+                continue
+            elif node.parent and hasattr(node.parent, 'type_comment_args') and \
+                node.parent.type_comment_args[i] is not None:
+                annotations.append(node.parent.type_comment_args[i])
+                continue
+            else:
+                msg = "Could not find all annotations for function on lineno %s. \n Performing dynamic analysis. This may produce incorrect results"
+                warnings.warn(msg)
+
+
+
+        annotations = node.annotations.copy()
+        if node.type_comment_args is not None:
+            for i, annotation in enumerate(node)
+        if hasattr(node.parent, 'type_comment_args') and node.parent.type_comment_args is not None:
+
+
+
+            iterator = zip(node.args, )
+
+        if node.annotations is not None:
+            iterator = zip(arg, annotations)
+
+
+
+        Params: List[Param] = []
+
+
+        for arg, annotation in zip(node.args, node.annotations):
+            name = arg
+            arg = self(ctx, arg)
+            r = self.fetch_argument_context(ctx, node, name)
+            if annotation is not None:
+                annotation = self(ctx, annotation)
+            elif hasattr(node.parent, 'type_annotation'):
+
+
+            name = py_arg.arg
+            r = ctx.make_range(py_arg.lineno, py_arg.col_offset, py_arg.col_offset + len(name))
+            if getattr(py_arg, 'annotation', None) is not None:
+                annotation_expr = build_expr(ctx, py_arg.annotation)
+            elif pdt_arg_type:
+                annotation_expr = Var(Ident(r, pdt_arg_type))
+            elif self_name is not None and name == 'self':
+                annotation_expr = Var(Ident(r, self_name))
+            else:
+                annotation_expr = EmptyTypeAnnotation(r)
+            return Param(annotation_expr, Ident(r, name), kwarg_only)
+
+            arg = self(ctx, arg)
+            annotation = self(ctx, annotation)
+
+
+
+
+
+
+
+            node.parent.body.appe
+        annotations = node.annotations
+        args = node.args
+        keywords
+
+        astroid.Name.pytype
 
     def get_type_line(self, node: astroid.No)->str:
         return annotations.get_type_line()
 
 
     support_stack = []
-    def build_Lambda(self, ctx: SupportContext, node: astroid.Lambda):
+    def build_FunctionDef(self, ctx: SupportContext, node: astroid.Lambda):
 
         #Break out if already compiled
         already_compiled = _state._try_get_jit_cached_function(node)
         if already_compiled is not None:
             return already_compiled
 
+        #Create compilation context
+        new_ctx = SupportContext(node)
+
         #Go fetch the parameter and return typing. Do not
         #give up until it is found
         parameter_typing = [None]*len(node.args.arguments)
-
 
         if node.args.annotations is not None:
             node.
@@ -1259,3 +1372,15 @@ class Builder(StmtLibMixin, ExprLibMixin):
         if method is None:
             raise UnsupportedNodeError(ctx, node)
         return method(ctx, node)
+
+builder = Builder()
+def script(obj: Callable):
+    """
+    Performs scripting process.
+
+    The class loads an entire tree,
+
+
+    :param obj:
+    :return:
+    """
