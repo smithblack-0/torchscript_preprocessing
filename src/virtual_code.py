@@ -8,23 +8,40 @@ code that is being created.
 from importlib.machinery import ModuleSpec
 from typing import Callable, Any, Dict, Optional
 import importlib
-from importlib import Mod
+from importlib import util
+import random
+import rcb
 
-class codeFinder(importlib.abc.MetaPathFinder):
-    def find_spec(
-        self,
-        fullname: str,
-        path,
-        target
-    ) -> Optional[ModuleSpec]:
-
-
-class TempCode():
+class mockModuleLoader(importlib.abc.InspectLoader):
     """
-    A temporary code management
-    objects.
-
-    This consists of a file in
-    which it is the case that
-    code may be appended.
+    Loads the virtual module, and
+    returns features from it.
     """
+    def __init__(self, source: str, env: rcb.EnvProxy):
+        self.source = source
+        self.env = env
+    def create_module(self, spec: ModuleSpec):
+        return None
+    def get_source(self, fullname: str):
+        return self.source
+    def exec_module(self, module):
+        print(module)
+        exec(self.source, self.env.locals, self.env.globals)
+        print(self.env.locals)
+        print(self.env.globals)
+        print(potato)
+        return module
+
+source = """\
+print(random.randint(0, 5))
+
+print("hello world")
+potato = 3
+"""
+proxy = rcb.makeEnvFromFrame()
+loader = mockModuleLoader(source, proxy)
+spec = ModuleSpec("test", loader)
+spec =  util.spec_from_loader("test", loader)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(dir(module))

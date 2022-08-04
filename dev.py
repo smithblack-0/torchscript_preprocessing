@@ -1,7 +1,7 @@
 import importlib
 import sys
 from importlib.machinery import ModuleSpec
-from typing import Sequence, Optional
+from typing import Sequence, Optional,
 
 print(sys.meta_path)
 
@@ -12,6 +12,10 @@ class tempcodeMockfinder(importlib.abc.MetaPathFinder):
                   target=None) -> Optional[ModuleSpec]:
         print(fullname, path, target)
         return None
+class MyLoader(importlib.abc.Loader):
+    def exec_module(self, module):
+        print(module)
+        exec(module)
 
 if tempcodeMockfinder in sys.meta_path:
     index = sys.meta_path.index(tempcodeMockfinder)

@@ -1,2 +1,3 @@
-class other():
-    pass
+import math
+
+print(math.pi.__module)
