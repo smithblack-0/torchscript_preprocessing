@@ -18,6 +18,11 @@ from torch import _jit_internal
 class EnvProxy(object):
     """
     The environmental proxy object.
+
+    This is simply an editable, managable
+    environment which can be converted into
+    a resolution callback usable by torchscript
+    in its scripting process.
     """
     def __init__(self,
                  f_locals: Dict[str, Any],
