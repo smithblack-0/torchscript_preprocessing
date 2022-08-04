@@ -4,38 +4,25 @@ import copy
 
 import astroid
 from typing import List, Tuple, Optional
-
+from torch.jit.frontend import UnsupportedNodeError
+from torch.jit.frontend import make_source_context
+#Make source context(source, filename, file_lineno, leading_whitespace_len, uses_true_division, funcname)
 
 class Transform():
     """
 
-    A transform accepts a astroid node and an astroid tree, and
-    processes and returns a node and tree. This repeats
-    for all subsequent transforms.
+    A transform is a logic unit of the preprocessing
+    system. It is the case that an individual transform
+    operates by accepting a node, processing the node, then
+    calling the appropriate part of the processor for the situation.
 
-    - The node returned may not belong to the original tree.
-    - Any modifications to the wider tree should create a new tree
-    - A few methods exist to make life easier
-    """
-
-    def __init__(self):
-        pass
-    def __call__(self, node: astroid.NodeNG, processor: Processor):
-        raise NotImplementedError()
-
-
-
-class Processor():
-    """
-
-    A processer applies a sequence of transforms to a node, then
-    returns the result. It is present in every transform, and as
-    a result also contains quite a few utility methods. It should be
-    noted that these methods will generally return a new tree when
-    edited.
+    A transform is expected to return two items. The first will
+    be a node, presumed to be the location on which to next
+    perform processing. This could either be the unchanged current
+    node, or a new node. The second is a bool. It should be true
+    if the tree was modified, and false otherwise.
 
     """
-
     def get_ancestor_from_top(self, node: astroid.NodeNG, depth: int) -> Optional[astroid.NodeNG]:
         """
 
@@ -59,7 +46,7 @@ class Processor():
     def insert_sibling_in_front(
                         node: astroid.NodeNG,
                         to_insert: List[astroid.NodeNG],
-                        spaces: int = 0) -> Tuple[astroid.NodeNG, astroid.NodeNG]:
+                        spaces: int = 0) -> astroid.NodeNG:
         """
 
         This function will start at a given node, then move up the
@@ -89,7 +76,7 @@ class Processor():
         insertion_point -= spaces
         assert insertion_point >= 0, "Attempted to insert sibling before start of list."
         parent.body = parent.body[:insertion_point] + to_insert + parent.body[insertion_point:]
-        return node, to_insert[0]
+        return to_insert[0]
 
     @staticmethod
     def insert_sibling_behind(node: astroid.NodeNG,
@@ -147,11 +134,72 @@ class Processor():
         parent.body[nodepoint] = replacement
         return replacement
 
+
+    def __init__(self):
+        pass
+    def __call__(self, node: astroid.NodeNG, processor: Processor)-> Tuple[astroid.NodeNG, bool]:
+        raise NotImplementedError()
+
+
+
+class Processor():
+    """
+    An iterative tree procesor. When called,
+    the internal transforms are called, one at
+    a time. Each transform should return a node.
+
+    Should the output node be the same object as
+    the input node, the processor goes onto the
+    next transform. Otherwise, it restarts the
+    transform stack on top of the new node.
+
+    If it should be the case that all transforms are
+    exhausted, we get the next sibling to the
+    given node. If it is the case that all such
+    nodes are exhausted, we return the final node.
+    """
+
+
+
+    def apply_transforms(self, node: astroid.NodeNG):
+        """
+        Applies transforms until either
+        a modification occurs, in which case
+        we break and indicate, or until all
+        transforms are exhausted.
+
+        :param node:
+        :return:
+        """
+
+        modified = False
+        for transform in self.transforms:
+            node, modified = transform(node, self)
+            if modified:
+                break
+        return node, modified
+
+
     def __init__(self, transforms: List[Transform]):
         self.transforms = transforms
-    def __call__(self,
-                 node: astroid.NodeNG
-                 ) -> astroid.NodeNG:
-        for transform in self.transforms:
-            node = transform(node, self)
-        return node
+    def __call__(self, node: astroid.NodeNG):
+        """
+        :param node: The node to begin processing on, working our way down the page.
+        :return: The root of the last node.
+        """
+        # Setup  the counters
+        while True:
+            modified = False
+            child_counter = 0
+            while child_counter < len(list(node.get_children())):
+                update, modified = self.apply_transforms(child)
+                if modified:
+                    node = update
+                    break
+                update, modified = self(child)
+                if modified:
+                    node = update
+                    break
+            if not modified:
+                print(node.as_string())
+                return node, False
