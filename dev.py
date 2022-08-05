@@ -6,6 +6,7 @@ from src import virtual_code
 import inspect
 
 
+
 builder = virtual_code.CodeBuilder()
 code = 'item = 3'
 builder.append(code)
