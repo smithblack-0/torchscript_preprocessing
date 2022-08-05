@@ -99,15 +99,15 @@ class CodeFile():
             return f.read()
     def fetch_err(self, lineno: int)->Exception:
     def __init__(self, source: List[CodeBlock]):
-        errors: List[ErrPacket] = []
-        source = ""
+        errors: List[ErrAssociation] = []
+        stringsource = ""
         lineno = 0
         for block in source:
             start = lineno
             sourcelines = block.source.split("\n")
             lineno += len(sourcelines)
             end = lineno
-            errors.append(ErrPacket(start, end, block.error))
+            errors.append(ErrAssociation(start, end, block.error))
 
 
 
