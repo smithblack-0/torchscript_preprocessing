@@ -7,8 +7,10 @@ It draws heavily from torch.
 from typing import Optional
 
 import torch
-from torch.jit.frontend import FrontendError
+from torch._C._jit_tree_views.SourceRange import SourceRange
+from torch.jit.frontend import FrontendError, NotSupportedError, UnsupportedNodeError
 from torch._sources import SourceContext
+
 
 class Context(SourceContext):
     """

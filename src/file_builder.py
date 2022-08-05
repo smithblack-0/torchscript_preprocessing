@@ -1,24 +1,27 @@
 """
-This module manages the creation and usage
-of virtual code. Virtual code uses some
-tricks of the import system to ensure
-inspect is adequetely redirected into the
-code that is being created.
+The proeprocessing process requires the creation
+of temporary objects which can be checked
+by inspect. This is handled by the codeBuilder
+package
+
+Objectives:
+
+Create temporary files with boilerplate and debug information
+Ensure these temporary files are accessable by inspect.
+Ensure these temporary files are capable of producing sane debug information
 """
+
 import inspect
 import os
 import re
 import pathlib
 import tempfile
 import datetime
-from importlib.machinery import ModuleSpec
-from typing import Callable, Any, Dict, Optional
-import importlib
-from importlib import util
-from importlib.machinery import ModuleSpec
-import random
-from src import rcb
+from typing import List
 
+from src import errors
+from src import rcb
+from dataclasses import dataclass
 
 boilerplate_template="""\
 \"\"\"
@@ -42,12 +45,95 @@ upon creation are:
 """
 
 
-class TempCodeFile():
+@dataclass
+class CodeBlock:
+    """
+    A codeblock contains a representation of
+    a chunk of code that belongs in a temporary
+    file. Importantly, it also contains details on
+    what code was being preprocessed, and why,
+    allowing sane error handling
+    """
+
+    source: str #The source string
+    error: Exception #An exception to associate with this string.
+
+@dataclass
+class ErrAssociation:
+    """
+    Tracks what part of the
+    source are associated
+    with which error to throw.
+    """
+    start_line: int
+    end_line: int
+    error: Exception
+    def is_associated(self, lineno: int):
+        """ Returns if a lineno is associated with this error"""
+        return self.start_line <= lineno <= self.end_line
+
+
+class CodeFile():
+    """
+    A manager for a temporary
+    code file and associated error
+    handling.
+
+    --- objectives ---
+    create temporary file with CodeBlock
+    exhibit source code out of temporary file
+    exhibit path of temporary file
+    clean up afterwords (delete temp on GC)
+    retrieve codeblock errors based on lineno
+    """
+    @property
+    def name(self):
+        return pathlib.Path(self.path).name
+    @property
+    def path(self):
+        return self._path
+    @property
+    def read(self)->str:
+        with open(self.path) as f:
+            f.seek(0)
+            return f.read()
+    def fetch_err(self, lineno: int)->Exception:
+    def __init__(self, source: List[CodeBlock]):
+        errors: List[ErrPacket] = []
+        source = ""
+        lineno = 0
+        for block in source:
+            start = lineno
+            sourcelines = block.source.split("\n")
+            lineno += len(sourcelines)
+            end = lineno
+            errors.append(ErrPacket(start, end, block.error))
+
+
+
+
+
+
+        handle = tempfile.NamedTemporaryFile(mode="w",
+                                                  suffix='.py',
+                                                  delete=False)
+
+        handle.write(source)
+        self._path = handle.name
+        handle.close()
+        self.release = True
+    def __del__(self):
+        if self.release:
+            os.remove(self.path)
+class CodeFile():
     """
     A file manager for temporary
     code. Initialized with source code
     string. Cleans up after itself upon
     GC.
+
+    Unless release is set to false, upon
+    GC deletes the temporary file.
     """
     @property
     def name(self):
@@ -73,6 +159,29 @@ class TempCodeFile():
         if self.release:
             os.remove(self.path)
 
+
+
+class CodeBuilder:
+    """
+    A class responsible for collecting
+    codeblocks together for synthesis.
+
+    Contains templates, along with
+    individual codeblocks
+    """
+    def __init__(self, start_template: str):
+        self.template = start_template
+        self.source: List[CodeBlock] = []
+    def compile(self, **kwargs):
+        """
+        Compiles all the code into a source file. Routes kwargs
+        into the matching templates.
+        :param kwargs:
+        :return:
+        """
+        pass
+
+
 class CodeBuilder():
     """
      A location for building temporary
@@ -93,6 +202,8 @@ class CodeBuilder():
      any environmental changes are returned as
      part of a new module. This module will then
      support inspection.
+
+     Proper usage is to append source files
      """
 
     def __init__(self, retain_crashfiles=True):
@@ -101,7 +212,7 @@ class CodeBuilder():
             allowing the user to inspect it.
         """
         self.retain = retain_crashfiles
-        self.source = []
+        self.source: List[CodeBlock] = []
     def make_boilerplate(self, env: rcb.EnvProxy):
         """
 
@@ -170,3 +281,4 @@ class CodeBuilder():
 
         #Fetch the desired item out of the sandboxed environment.
         return getattr(partial_sandbox, fetch)
+
