@@ -31,6 +31,12 @@ class EnvProxy(object):
         self.locals = f_locals.copy()
         self.globals = f_globals.copy()
         self.builtins = f_builtins.copy()
+    def as_dict(self)->Dict[str, Any]:
+        output = {}
+        output.update(self.builtins)
+        output.update(self.globals)
+        output.update(self.locals)
+        return output
     def __getattr__(self, key):
         if key in self.locals:
             return self.locals[key]
@@ -38,7 +44,10 @@ class EnvProxy(object):
             return self.globals[key]
         elif key in dir(self.builtins):
             return getattr(self.builtins, key)
-
+    def __copy__(self):
+        return EnvProxy(self.locals.copy(), self.globals.copy(), self.builtins.copy())
+    def copy(self):
+        return self.__copy__()
 def makeEnvFromFrame(frames_up: int = 0)-> EnvProxy:
     """
     Makes an editable env from a frame.
