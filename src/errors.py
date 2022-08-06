@@ -7,10 +7,26 @@ It draws heavily from torch.
 from typing import Optional
 
 import torch
-from torch._C._jit_tree_views.SourceRange import SourceRange
+from pathlib import Path
+from torch._C._jit_tree_views import SourceRange
 from torch.jit.frontend import FrontendError, NotSupportedError, UnsupportedNodeError
 from torch._sources import SourceContext
 
+class ():
+    path: Path
+    line: int
+    start: int
+    end: int
+
+
+
+def Translator(err: SourceRange):
+    """
+    Translates a fairly useless C++ range
+    in python into something
+    more useful
+    :return:
+    """
 
 class Context(SourceContext):
     """
@@ -18,6 +34,8 @@ class Context(SourceContext):
 
     Used to report where an error is coming from
     """
+
+
     def __init__(self,
                  source: str,
                  filename: str,
@@ -25,8 +43,10 @@ class Context(SourceContext):
                  leading_whitespace: int,
                  uses_true_div: bool = False,
                  funcname: Optional[str] = None):
+
         super().__init__(source, filename, file_lineno,
                          leading_whitespace, uses_true_div, funcname)
+
 
 
 class PreprocessingError(FrontendError):
@@ -34,7 +54,7 @@ class PreprocessingError(FrontendError):
     The error class. Contains information
     on where in the code things have gone wrong
     """
-    def __init__(self, source_range, msg):
+    def __init__(self, source_range: SourceRange, msg: str):
         self.source_range = source_range
         self.msg = msg
 

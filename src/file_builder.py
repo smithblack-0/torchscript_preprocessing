@@ -17,7 +17,7 @@ import re
 import pathlib
 import tempfile
 import datetime
-from typing import List
+from typing import List, Callable
 
 from src import errors
 from src import rcb
@@ -55,23 +55,22 @@ class CodeBlock:
     allowing sane error handling
     """
 
-    source: str #The source string
-    error: Exception #An exception to associate with this string.
+    code: str # The code string
+    error_constructor: Callable[[Exception], errors.PreprocessingError]
 
 @dataclass
-class ErrAssociation:
+class ErrBlock:
     """
     Tracks what part of the
     source are associated
     with which error to throw.
     """
-    start_line: int
-    end_line: int
-    error: Exception
-    def is_associated(self, lineno: int):
-        """ Returns if a lineno is associated with this error"""
-        return self.start_line <= lineno <= self.end_line
-
+    start_lineno: int
+    end_lineno: int
+    error_constructor: Callable[[Exception], errors.PreprocessingError]
+    def is_associated(self, lineno):
+        """ Returns if the given char is associated with this error"""
+        return self.start_lineno <= lineno <= self.end_lineno
 
 class CodeFile():
     """
@@ -97,17 +96,16 @@ class CodeFile():
         with open(self.path) as f:
             f.seek(0)
             return f.read()
-    def fetch_err(self, lineno: int)->Exception:
     def __init__(self, source: List[CodeBlock]):
-        errors: List[ErrAssociation] = []
+        errors: List[ErrBlock] = []
         stringsource = ""
         lineno = 0
         for block in source:
             start = lineno
-            sourcelines = block.source.split("\n")
+            sourcelines = block.code.split("\n")
             lineno += len(sourcelines)
             end = lineno
-            errors.append(ErrAssociation(start, end, block.error))
+            errors.append(ErrBlock(start, end, block.error_constructor))
 
 
 
