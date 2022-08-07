@@ -4,64 +4,34 @@ providing methods for errors.
 
 It draws heavily from torch.
 """
-from typing import Optional
+from typing import Optional, List, Any, Union
 
-import torch
-from pathlib import Path
 from torch._C._jit_tree_views import SourceRange
 from torch.jit.frontend import FrontendError, NotSupportedError, UnsupportedNodeError
-from torch._sources import SourceContext
-
-class ():
-    path: Path
-    line: int
-    start: int
-    end: int
+from typing import Callable
 
 
+class UnhandledPreprocessingError(Exception):
+    @staticmethod
+    def precompile(msg: str)->Callable[[Any], "UnhandledPreprocessingError"]:
+        def callback(tb):
+            return UnhandledPreprocessingError(tb, msg)
+        return callback
+    def __init__(self, tb: Any, message: str):
+        self.tb = tb
+        super().__init__(message)
 
-def Translator(err: SourceRange):
-    """
-    Translates a fairly useless C++ range
-    in python into something
-    more useful
-    :return:
-    """
-
-class Context(SourceContext):
-    """
-    A strongly typed version of the context
-
-    Used to report where an error is coming from
-    """
-
-
-    def __init__(self,
-                 source: str,
-                 filename: str,
-                 file_lineno: int,
-                 leading_whitespace: int,
-                 uses_true_div: bool = False,
-                 funcname: Optional[str] = None):
-
-        super().__init__(source, filename, file_lineno,
-                         leading_whitespace, uses_true_div, funcname)
+class TorchParseError(FrontendError):
+    @staticmethod
+    def precompile(source_range: SourceRange, activity: str) ->Callable[[Any], "TorchParseError"]:
+        """Precompiles everything into a callback that just needs the tb"""
+        def callback(tb):
+            return TorchParseError(source_range, activity, tb)
+        return callback
+    def __init__(self, source_range: SourceRange, activity: str, tb):
+        msg = "torch scripting error encountered while preprocessing code for {activity}".format(activity=activity)
+        self.tb = tb
+        super().__init__(source_range=source_range, msg=msg)
 
 
-
-class PreprocessingError(FrontendError):
-    """
-    The error class. Contains information
-    on where in the code things have gone wrong
-    """
-    def __init__(self, source_range: SourceRange, msg: str):
-        self.source_range = source_range
-        self.msg = msg
-
-        # This has to be instantiated here so the ErrorReport is accurate to the
-        # call stack when the FrontendError was raised
-        self.error_report = torch._C.ErrorReport(self.source_range)
-
-    def __str__(self):
-        return self.msg + self.error_report.what().lstrip()
-
+Types = Union[UnhandledPreprocessingError, TorchParseError]
