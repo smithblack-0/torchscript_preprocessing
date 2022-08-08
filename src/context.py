@@ -15,6 +15,7 @@ import io
 import os
 import pathlib
 import tempfile
+import importlib
 from typing import List, Callable, Any, Optional
 
 
@@ -22,9 +23,6 @@ from src import errors
 from src import rcb
 from src import datastructures
 from src import templates
-
-
-
 
 class Context():
     """
@@ -38,7 +36,8 @@ class Context():
     """
     def get(self, name: str)->Any:
         """ Attempts to retrieve environmental info"""
-        return getattr(self.env, name)
+        output = getattr(self.env, name)
+        return output
     def __init__(self,
                  root_block: datastructures.CodeBlock,
                  env: rcb.EnvProxy,
@@ -60,7 +59,7 @@ class Context():
         self.rcb = rcb.createCallbackfromEnv(self.env)
         self.temp_handle: Optional[io.TextIOWrapper] = None
 
-    def __enter__(self)->datastructures.CompileStub:
+    def __enter__(self)-> datastructures.CompileStub:
         source = self.root.read()
         self.temp_handle = tempfile.NamedTemporaryFile(mode="w",
                                             suffix='.py',
@@ -69,7 +68,7 @@ class Context():
         self.temp_handle.write(source)
         path = self.temp_handle.name
         name = pathlib.Path(path).name
-        return datastructures.CompileStub(path, name, source, self.rcb)
+        return datastructures.CompileStub(path, name, source, self.env, self.rcb)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_tb is not None:

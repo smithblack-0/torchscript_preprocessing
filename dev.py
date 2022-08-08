@@ -1,11 +1,17 @@
-import inspect
 import torch
-import sys
-from torch import _sources
-from torch.jit import frontend
 
-from src.context import Context
-_sources.make_source_context()
+
+#Test code
+def redirect():
+    return 4
+source = """\
+def get_4():
+    return redirect()
+"""
+with StringSourceModule(source, globals(), locals()) as module:
+    get = torch.jit.script(module.get_4)
+    print(get())
+
 
 
 

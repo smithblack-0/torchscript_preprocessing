@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Callable, Any, Optional
 
 from src import errors
+from src import rcb
 
 class DLList:
     """
@@ -124,5 +125,5 @@ class CompileStub:
     path: str
     name: str
     code: str
-    write: Callable[[str], None]
+    env: rcb.EnvProxy
     rcb: Callable[[str], Any]

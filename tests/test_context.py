@@ -56,31 +56,65 @@ class test_Context(unittest.TestCase):
         sourcelines, lineno, filename = _sources.get_source_lines_and_file(obj)
         source = "".join(sourcelines)
         context = _sources.SourceContext(source, filename, lineno, 0)
-
-    def setUp(self) -> None:
-
-
-
-
-        _sources.SourceContext()
-
-        codeblocks = []
-        codeblocks.append(datastructures.CodeBlock())
+        r = context.make_raw_range(0, 10000)
+        block = datastructures.CodeBlock(source, errors.TorchParseError.precompile(r, "testing"))
+        return block
+    def make_basic_blocks(self) -> List[datastructures.CodeBlock]:
+        return [self.create_codeblock(item) for item in basic_source]
+    def make_passing_blocks(self) -> List[datastructures.CodeBlock]:
+        return [self.create_codeblock(item) for item in torch_source]
+    def make_failing_blocks(self) -> List[datastructures.CodeBlock]:
+        return [self.create_codeblock(item) for item in torch_fail]
     def test_creation(self):
         """ Tests whether or not we can create anything at all"""
-
         env = rcb.makeEnvFromFrame()
         path = inspect.currentframe().f_code.co_filename
-
-
-        context.Context()
-        pass
+        basic = self.make_basic_blocks()
+        root = basic[0]
+        for item in basic:
+            if root is item:
+                continue
+            root.append(item)
+        cnt = context.Context(root, env, path)
+        with cnt as stub:
+            self.assertTrue(stub.rcb('source7') is source7)
     def test_basic_execution(self):
         """ Tests whether or not we can sanely execute and retriev code"""
-        pass
+        env = rcb.makeEnvFromFrame()
+        path = inspect.currentframe().f_code.co_filename
+        basic = self.make_basic_blocks()
+        root = basic[0]
+        for item in basic:
+            if root is item:
+                continue
+            root.append(item)
+        cnt = context.Context(root, env, path)
+        with cnt as stub:
+            code = compile(stub.code, stub.path, mode="exec")
+            exec(code, stub.env.globals, stub.env.locals)
+            item = cnt.get("source1")
+            code = inspect.getsource(item)
+        self.assertTrue(cnt.get('source1') is not None)
+    @unittest.skip("Debugging")
     def test_torchscript_execution(self):
         """Test whether or not we can compile then retrieve objects from context"""
-        pass
+        """ Tests whether or not we can sanely execute and retriev code"""
+        env = rcb.makeEnvFromFrame()
+        path = inspect.currentframe().f_code.co_filename
+        basic = self.make_passing_blocks()
+        root = basic[0]
+        for item in basic:
+            if root is item:
+                continue
+            root.append(item)
+        cnt = context.Context(root, env, path)
+        example = None
+        with cnt as stub:
+            code = compile(stub.code, stub.path, mode="exec")
+            exec(code, stub.env.globals, stub.env.locals)
+            example = cnt.get('source4')
+            example = torch.jit.script(example)
+        print(example())
     def test_torcherror_redirection(self):
         """Test whether or not the unit is capable of redirecting a torchscript err"""
         pass
