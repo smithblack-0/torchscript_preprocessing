@@ -10,11 +10,6 @@ from typing import Optional, Dict, Any, Union
 import torch.jit
 import torch
 
-def script_string(source: str,
-                  local_vars: Optional[Dict[str, Any]],
-                  global_vars: Optional[Dict[str, Any]]):
-    pass
-
 class StringScriptContext():
     """
     Introduction
