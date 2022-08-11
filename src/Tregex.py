@@ -6,31 +6,18 @@ inspired by tregex:
 https://nlp.stanford.edu/manning/courses/ling289/Tregex.html
 
 
-Examples:
+Design:
 
-A >_{3} B: Child order operator. B is a child o
-A $ B: B is a child of A. child pos operator.
+You are basically specifying constraints on a particular node.
 
-A > B >>_{3} C: A is a child of B. B's third post sibling is C
+Operators:
 
-
-A > B: A's immediate child is B.
-A >> B: A's immediate descendent is B
-
-A #> B: A's immediate sibling is
+> : Parent of. Eg: A > B:
+< : Child of
+#> : Prior sibling
+#< : Post sibling
 
 
-
-A >{3} B: A's third descendent is B
-A >>{3} B: A's third descendent is B
-
-
-
-
-
-A > B >>_{3} C: A has a child which is B
-
-Syntax:
 
 
 
@@ -88,31 +75,5 @@ $A #Parent of A
 
 from enum import Enum
 
-## posfix converter
 
-
-def toPostfix(infix):
-    stack = []
-    postfix = ''
-
-    for c in infix:
-        if isOperand(c):
-            postfix += c
-        else:
-            if isLeftParenthesis(c):
-                stack.append(c)
-            elif isRightParenthesis(c):
-                operator = stack.pop()
-                while not isLeftParenthesis(operator):
-                    postfix += operator
-                    operator = stack.pop()
-            else:
-                while (not isEmpty(stack)) and hasLessOrEqualPriority(c,peek(stack)):
-                    postfix += stack.pop()
-                stack.append(c)
-
-    while (not isEmpty(stack)):
-        postfix += stack.pop()
-    return postfix
-
-##
+class 
