@@ -1,11 +1,9 @@
 import inspect
 import ast
+from src import builder
 
 
-def test():
+
+def test()-> int:
     item = 3 + 3
     item: int = 3
-
-source = inspect.getsource(test)
-tree = ast.parse(source)
-print(tree)

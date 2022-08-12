@@ -1,74 +1,67 @@
 """
-The main module for preprocessing
 
+
+The preprocessing algorithm consists of generating a stack of
+important modification handles which can and must be utilized
+to produce sane results.
 
 """
 import ast
+import astunparse
 import inspect
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, List, Tuple, Dict
 
 
 
-def parentize(tree: ast.AST):
-    """Attach parent information onto an ast tree"""
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            child.parent = node
-    return tree
 
-class AbstractTransform():
-    """ A base transform."""
+import ast
+from typing import List
+
+from builder import NodeBuilder
 
 
-class MRO_Transformer(AbstractTransform):
+class StackSupport:
     """
-    A rewriter for inheritance and other MRO effects. Responsible for
-    detecting and executing an inheritance rewrite.
-    """
-    @staticmethod
-    def detect_inheritance(node: ast.AST)->bool:
-        """ Detects whether a particular ast node is an inheriting class"""
-        raise NotImplementedError()
-    @staticmethod
-    def rewrite_inheritance(rewrite_stream, node: ast.ClassDef)->ast.ClassDef:
-        """Rewrites inheritance with override analysis"""
-        raise NotImplementedError()
+    A context manager for the ast tree.
 
-class ClassAttributeTransformer(AbstractTransform):
+    Knows what is going on, and how deep the stack currently
+    is into the tree.
     """
-    A rewriter for handling class attributes.
-    """
-    @staticmethod
-    def detect(node: ast.AST)->bool:
-        raise NotImplementedError()
-    @staticmethod
-    def rewrite(stream, node: ast.ClassDef)->ast.ClassDef:
-        raise NotImplementedError()
 
-class InlineClassTransformer():
-    """
-    A rewriter to handle inline class definitions.
-    """
-    @staticmethod
-    def detect(node: ast.AST)->bool:
-        raise NotImplementedError()
-    @staticmethod
-    def rewrite(stream, node: ast.ClassDef)->ast.Call:
-        raise NotImplementedError()
+    def __init__(self, obj: object):
+        """
+        We need to go get the rest of the tree as
+        available features. To do this,simply we go ahead
+        and parse the entire module, then chase
+        down where we currently are in the tree
 
-class InlineFunctionTransformer():
-    """
-    A preprocessor to handle inline function definitions
-    """
-    @staticmethod
-    def detect(node: ast.AST):
-        raise NotImplementedError()
-    @staticmethod
-    def rewrite(stream, node: ast.FunctionDef)->ast.Call:
+        :param obj: The object to get source from
+        """
+
+        #Get target source data
+        source = inspect.getsource(obj)
+        source = ast.parse(source)
+        source = ast.unparse(source)
+
+        #Get the entire module tree.
+        module = inspect.getmodule(obj)
+        lines, no = inspect.getsourcelines(module)
+        module_source = "\n".join(lines)
+        module_source = ast.parse(module_source)
+
+        #Walk the tree, search for the proper condition
+
+    def push(self, node: ast.AST):
+        """Push a new feature onto the stack"""
+        self.stack.append(NodeBuilder(node))
+
+    def pop(self) -> ast.AST:
+        """Pop a node back off of the stack"""
+        builder = self.stack.pop()
+        return builder.finish()
 
 
-source = inspect.getsource(test)
-tree = ast.parse(source)
-tree = parentize(tree)
-print(tree.body[0].parent)
+def CaseRegistry():
+    """A registry keeping track of the various trans"""
