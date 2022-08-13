@@ -6,20 +6,11 @@ important modification handles which can and must be utilized
 to produce sane results.
 
 """
-import ast
-import astunparse
 import inspect
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any, List, Tuple, Dict
-
-
-
 
 import ast
-from typing import List
 
-from builder import NodeBuilder
+from src._autogeneration._builder_stub import NodeBuilder
 
 
 class StackSupport:
