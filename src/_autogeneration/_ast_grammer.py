@@ -159,7 +159,8 @@ class sig_item_info:
     associated typing.
     """
     name: str
-    typing: ast.AST
+    typing: str
+    flavor: str
 
 def remove_comments(item: str)->str:
     """
@@ -201,12 +202,21 @@ def get_signature_variety(name: str)->Optional[List[sig_item_info]]:
         for subsection in subsections:
             pieces = subsection.split(" ")
             typing, name = pieces
-            typing = typing.strip("*").strip("?")
+            accessory = None
+            if typing.endswith("*") or typing.endswith("?"):
+                #This stuff is used to indicate lists
+                accessory = typing[-1]
+                typing = typing[:-1]
             if hasattr(ast, typing):
                 typing = "ast." + typing
             else:
                 typing = "object"
-            output.append(sig_item_info(name, typing))
+            if accessory is not None:
+                #I am not confident that "?" is being handled properly.
+                typing = "List[" + typing + "]"
+                output.append(sig_item_info(name, typing, "list"))
+            else:
+                output.append(sig_item_info(name, typing, "standard"))
         return output
     return None
 

@@ -46,18 +46,31 @@ class StackSupportNode():
     node types.
     """
     registry: Dict[Type[ast.AST], Type["StackSupportNode"]] = {}
+    fields = ()
+    annotations = ()
     @property
     def node(self) -> ast.AST:
         return self._node
+    @property
+    def is_root(self):
+        if self._node is None:
+            return True
+        return False
     @classmethod
     def get_subclass(cls, node: Type[ast.AST])->Type["StackSupportNode"]:
         """Gets the approriate subclass"""
         return cls.registry[node]
-    def push(self, node: ast.AST)->"StackSupportNode":
+    def push(self, node: Union[ast.AST, List[ast.AST]])->"StackSupportNode":
         """Push a new node onto the stack"""
         subclass = self.get_subclass(node.__class__)
-        return subclass(node, self)
-    def pop(self, node: ast.AST)->ast.AST:
+        if self.parent is None:
+            return subclass(node, self)
+        else:
+            for field, typing in zip(self.fields, self.annotations):
+                if getattr(self, field) is node:
+                    return subclass(node, self, typing)
+            raise ValueError("Attempt to push node not on ast feature.")
+    def pop(self)->ast.AST:
         """Pops the current node off the stack. Returns the constructed ast node"""
         return self.construct()
     def construct(self)->ast.AST:
@@ -67,11 +80,36 @@ class StackSupportNode():
         """Registers the subclass associated with the given ast node"""
         cls.registry[typing] = cls
     def __init__(self,
-                 node: ast.AST,
-                 parent: Optional["StackSupportNode"]
+                 node: Optional[Union[ast.AST, List[ast.AST]]]=None,
+                 parent: Optional["StackSupportNode"] = None,
+                 auxilary: Optional[Type] = None
                  ):
         self.parent = parent
         self._node = node
 
+class listSupportNode(StackSupportNode, typing=list):
+    """
+    A node for generating list features. Some
+    features of an ast node will be a list, which
+    must later be compiled into some sort of
+    reasonable statement.
 
+    This will then promise to handle any requests
+    for these kinds of nodes.
+    """
+    def __init__(self, node: list, parent: StackSupportNode, auxilary: str):
+        """Creates the build list."""
+        super().__init__(node, parent)
+        self.type = auxilary
+        self.list: List["StackSupportNode"] = []
+    def construct(self) -> List["StackSupportNode"]:
+        output = []
+        for item in self.list:
+            if item is None:
+                continue
+            elif isinstance(item, self.type):
+                output.append(item)
+            else:
+                raise ValueError("Item %s is not of type %s" % (item, self.type))
+        return output
 
