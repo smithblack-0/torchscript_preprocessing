@@ -9,14 +9,6 @@ import astroid
 import inspect
 from typing import Union, Type, Optional
 
-from torch._sources import get_source_lines_and_file
-from torch._sources import make_source_context
-
-
-
-
-
-
 def parse(obj: object):
     """
     Parses the ast tree for an object.

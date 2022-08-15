@@ -17,18 +17,15 @@ stack = builder.StackSupportNode()
 stack = stack.push(tree)
 print(dir(stack))
 
-def reconstruct(node: ast.Module, helper: Optional[builder.StackSupportNode]=None):
+
+def reconstruct(node: ast.AST, helper: Optional[builder.StackSupportNode]=None):
     if helper is None:
         helper = builder.StackSupportNode()
     context = helper.push(node)
-    for fieldname in context.fields:
-        context_attr = getattr(context, fieldname)
-        node_attr = getattr(node, fieldname)
-        if isinstance(node_attr, list):
-            for item in node_attr:
-                context_attr.append(reconstruct(item, context))
-        else:
-            setattr(context, fieldname, reconstruct(node_attr, context))
+    for fieldname, child in context.get_child_iterator():
+        if isinstance(child, ast.AST):
+            child = reconstruct(child, context)
+        context.place(fieldname, child)
     return context.pop()
 
 

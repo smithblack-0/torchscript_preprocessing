@@ -2,7 +2,8 @@ import ast
 import copy
 import inspect
 from dataclasses import dataclass
-from typing import Any, List, Tuple, Dict, Type, Optional, Union, Callable
+import typing as typing_std_lib #I had already used typing in code.
+from typing import Any, List, Tuple, Dict, Type, Optional, Union, Callable, Generator
 from copy import deepcopy
 
 """
@@ -16,9 +17,6 @@ Completely preprocessing a node consists
 of going through all subnodes, attaching
 the results to the created builder, 
 and returning the results.
-
-
-
 """
 
 
@@ -28,6 +26,8 @@ and returning the results.
 #Note that it is the case that classes defined
 #later in this source code have lower priority
 #then those defined earlier.
+
+
 
 class StackSupportNode():
     """
@@ -45,7 +45,7 @@ class StackSupportNode():
     Various subclasses take care of building the various
     node types.
     """
-    registry: Dict[Type[ast.AST], Type["StackSupportNode"]] = {}
+    registry: Dict[Type, Type["StackSupportNode"]] = {}
     fields = ()
     annotations = ()
     @property
@@ -70,9 +70,34 @@ class StackSupportNode():
     def construct(self)->ast.AST:
         """Constructs a new node from the current parameters"""
         raise NotImplementedError()
-    def __init_subclass__(cls, typing: Type[ast.AST]):
+    def place(self, fieldname: str, value: Any):
+        """Places the given value into the given fieldname. Lists are appended to. Raw slots are replaced"""
+        if isinstance(getattr(self, fieldname), list):
+            getattr(self, fieldname).append(value)
+        assert getattr(self, fieldname) is None, "Attribute of name %s already set" % fieldname
+        setattr(self, fieldname, value)
+    def get_child_iterator(self)->Generator[Tuple[str, Any], None, None]:
+        """
+        Iterates over every node directly attached
+        to the ast node. Notably, indicates the
+        field we are currently working in.
+        """
+        for fieldname, value in ast.iter_fields(self.node):
+            if isinstance(value, list):
+                for subitem in value:
+                    yield fieldname, subitem
+            else:
+                yield fieldname, value
+    def __init_subclass__(cls, typing: Type):
         """Registers the subclass associated with the given ast node"""
-        cls.registry[typing] = cls
+        if typing_std_lib.get_origin(typing) is Union:
+            #Get union arguments then store each one in association
+            args = typing_std_lib.get_args(typing)
+        else:
+            args = [typing]
+        for arg in args:
+            cls.registry[arg] = cls
+
     def __init__(self,
                  node: Optional[Union[ast.AST, List[ast.AST]]]=None,
                  parent: Optional["StackSupportNode"] = None,
@@ -83,13 +108,12 @@ class StackSupportNode():
 
 class listSupportNode(StackSupportNode, typing=list):
     """
-    A node for generating list features. Some
-    features of an ast node will be a list, which
-    must later be compiled into some sort of
-    reasonable statement.
+    A node for generating list features.
 
-    This will then promise to handle any requests
-    for these kinds of nodes.
+    Tracks the parent, as is standard. Presents
+    the attribute "list" which can be edited.
+
+    Construct will verify types in list are correct.
     """
     def __init__(self, node: list, parent: StackSupportNode, auxilary: str):
         """Creates the build list."""
@@ -135,14 +159,14 @@ class ModuleBuilderNode(StackSupportNode, typing=ast.Module):
     Module
     """
     fields = ("body", "type_ignores", )
-    annotations = (List[ast.stmt], List[ast.type_ignore], )
+    annotations = (ast.stmt, ast.type_ignore, )
     @property
     def node(self)->ast.Module:
         return self._node
     def __init__(self, node: ast.Module, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.body: List[ast.stmt] = node.body
-        self.type_ignores: List[ast.type_ignore] = node.type_ignores
+        self.body: List[ast.stmt] = []
+        self.type_ignores: List[ast.type_ignore] = []
     def construct(self)->ast.Module:
         return ast.Module(
             self.body,
@@ -157,13 +181,13 @@ class InteractiveBuilderNode(StackSupportNode, typing=ast.Interactive):
     Interactive
     """
     fields = ("body", )
-    annotations = (List[ast.stmt], )
+    annotations = (ast.stmt, )
     @property
     def node(self)->ast.Interactive:
         return self._node
     def __init__(self, node: ast.Interactive, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.body: List[ast.stmt] = node.body
+        self.body: List[ast.stmt] = []
     def construct(self)->ast.Interactive:
         return ast.Interactive(
             self.body,
@@ -183,7 +207,7 @@ class ExpressionBuilderNode(StackSupportNode, typing=ast.Expression):
         return self._node
     def __init__(self, node: ast.Expression, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.body: ast.expr = node.body
+        self.body: Optional[ast.expr] = None
     def construct(self)->ast.Expression:
         return ast.Expression(
             self.body,
@@ -197,14 +221,14 @@ class FunctionTypeBuilderNode(StackSupportNode, typing=ast.FunctionType):
     FunctionType
     """
     fields = ("argtypes", "returns", )
-    annotations = (List[ast.expr], ast.expr, )
+    annotations = (ast.expr, ast.expr, )
     @property
     def node(self)->ast.FunctionType:
         return self._node
     def __init__(self, node: ast.FunctionType, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.argtypes: List[ast.expr] = node.argtypes
-        self.returns: ast.expr = node.returns
+        self.argtypes: List[ast.expr] = []
+        self.returns: Optional[ast.expr] = None
     def construct(self)->ast.FunctionType:
         return ast.FunctionType(
             self.argtypes,
@@ -239,18 +263,18 @@ class FunctionDefBuilderNode(StackSupportNode, typing=ast.FunctionDef):
     FunctionDef
     """
     fields = ("name", "args", "body", "decorator_list", "returns", "type_comment", )
-    annotations = (object, ast.arguments, List[ast.stmt], List[ast.expr], List[ast.expr], List[object], )
+    annotations = (str, ast.arguments, ast.stmt, ast.expr, ast.expr, str, )
     @property
     def node(self)->ast.FunctionDef:
         return self._node
     def __init__(self, node: ast.FunctionDef, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.name: object = node.name
-        self.args: ast.arguments = node.args
-        self.body: List[ast.stmt] = node.body
-        self.decorator_list: List[ast.expr] = node.decorator_list
-        self.returns: List[ast.expr] = node.returns
-        self.type_comment: List[object] = node.type_comment
+        self.name: Optional[str] = None
+        self.args: Optional[ast.arguments] = None
+        self.body: List[ast.stmt] = []
+        self.decorator_list: List[ast.expr] = []
+        self.returns: Optional[ast.expr] = None
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.FunctionDef:
         return ast.FunctionDef(
             self.name,
@@ -269,18 +293,18 @@ class AsyncFunctionDefBuilderNode(StackSupportNode, typing=ast.AsyncFunctionDef)
     AsyncFunctionDef
     """
     fields = ("name", "args", "body", "decorator_list", "returns", "type_comment", )
-    annotations = (object, ast.arguments, List[ast.stmt], List[ast.expr], List[ast.expr], List[object], )
+    annotations = (str, ast.arguments, ast.stmt, ast.expr, ast.expr, str, )
     @property
     def node(self)->ast.AsyncFunctionDef:
         return self._node
     def __init__(self, node: ast.AsyncFunctionDef, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.name: object = node.name
-        self.args: ast.arguments = node.args
-        self.body: List[ast.stmt] = node.body
-        self.decorator_list: List[ast.expr] = node.decorator_list
-        self.returns: List[ast.expr] = node.returns
-        self.type_comment: List[object] = node.type_comment
+        self.name: Optional[str] = None
+        self.args: Optional[ast.arguments] = None
+        self.body: List[ast.stmt] = []
+        self.decorator_list: List[ast.expr] = []
+        self.returns: Optional[ast.expr] = None
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.AsyncFunctionDef:
         return ast.AsyncFunctionDef(
             self.name,
@@ -299,17 +323,17 @@ class ClassDefBuilderNode(StackSupportNode, typing=ast.ClassDef):
     ClassDef
     """
     fields = ("name", "bases", "keywords", "body", "decorator_list", )
-    annotations = (object, List[ast.expr], List[ast.keyword], List[ast.stmt], List[ast.expr], )
+    annotations = (str, ast.expr, ast.keyword, ast.stmt, ast.expr, )
     @property
     def node(self)->ast.ClassDef:
         return self._node
     def __init__(self, node: ast.ClassDef, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.name: object = node.name
-        self.bases: List[ast.expr] = node.bases
-        self.keywords: List[ast.keyword] = node.keywords
-        self.body: List[ast.stmt] = node.body
-        self.decorator_list: List[ast.expr] = node.decorator_list
+        self.name: Optional[str] = None
+        self.bases: List[ast.expr] = []
+        self.keywords: List[ast.keyword] = []
+        self.body: List[ast.stmt] = []
+        self.decorator_list: List[ast.expr] = []
     def construct(self)->ast.ClassDef:
         return ast.ClassDef(
             self.name,
@@ -327,13 +351,13 @@ class ReturnBuilderNode(StackSupportNode, typing=ast.Return):
     Return
     """
     fields = ("value", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.Return:
         return self._node
     def __init__(self, node: ast.Return, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: List[ast.expr] = node.value
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.Return:
         return ast.Return(
             self.value,
@@ -347,13 +371,13 @@ class DeleteBuilderNode(StackSupportNode, typing=ast.Delete):
     Delete
     """
     fields = ("targets", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.Delete:
         return self._node
     def __init__(self, node: ast.Delete, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.targets: List[ast.expr] = node.targets
+        self.targets: List[ast.expr] = []
     def construct(self)->ast.Delete:
         return ast.Delete(
             self.targets,
@@ -367,15 +391,15 @@ class AssignBuilderNode(StackSupportNode, typing=ast.Assign):
     Assign
     """
     fields = ("targets", "value", "type_comment", )
-    annotations = (List[ast.expr], ast.expr, List[object], )
+    annotations = (ast.expr, ast.expr, str, )
     @property
     def node(self)->ast.Assign:
         return self._node
     def __init__(self, node: ast.Assign, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.targets: List[ast.expr] = node.targets
-        self.value: ast.expr = node.value
-        self.type_comment: List[object] = node.type_comment
+        self.targets: List[ast.expr] = []
+        self.value: Optional[ast.expr] = None
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.Assign:
         return ast.Assign(
             self.targets,
@@ -397,9 +421,9 @@ class AugAssignBuilderNode(StackSupportNode, typing=ast.AugAssign):
         return self._node
     def __init__(self, node: ast.AugAssign, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.target: ast.expr = node.target
-        self.op: ast.operator = node.op
-        self.value: ast.expr = node.value
+        self.target: Optional[ast.expr] = None
+        self.op: Optional[ast.operator] = None
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.AugAssign:
         return ast.AugAssign(
             self.target,
@@ -415,16 +439,16 @@ class AnnAssignBuilderNode(StackSupportNode, typing=ast.AnnAssign):
     AnnAssign
     """
     fields = ("target", "annotation", "value", "simple", )
-    annotations = (ast.expr, ast.expr, List[ast.expr], object, )
+    annotations = (ast.expr, ast.expr, ast.expr, int, )
     @property
     def node(self)->ast.AnnAssign:
         return self._node
     def __init__(self, node: ast.AnnAssign, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.target: ast.expr = node.target
-        self.annotation: ast.expr = node.annotation
-        self.value: List[ast.expr] = node.value
-        self.simple: object = node.simple
+        self.target: Optional[ast.expr] = None
+        self.annotation: Optional[ast.expr] = None
+        self.value: Optional[ast.expr] = None
+        self.simple: Optional[int] = None
     def construct(self)->ast.AnnAssign:
         return ast.AnnAssign(
             self.target,
@@ -441,17 +465,17 @@ class ForBuilderNode(StackSupportNode, typing=ast.For):
     For
     """
     fields = ("target", "iter", "body", "orelse", "type_comment", )
-    annotations = (ast.expr, ast.expr, List[ast.stmt], List[ast.stmt], List[object], )
+    annotations = (ast.expr, ast.expr, ast.stmt, ast.stmt, str, )
     @property
     def node(self)->ast.For:
         return self._node
     def __init__(self, node: ast.For, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.target: ast.expr = node.target
-        self.iter: ast.expr = node.iter
-        self.body: List[ast.stmt] = node.body
-        self.orelse: List[ast.stmt] = node.orelse
-        self.type_comment: List[object] = node.type_comment
+        self.target: Optional[ast.expr] = None
+        self.iter: Optional[ast.expr] = None
+        self.body: List[ast.stmt] = []
+        self.orelse: List[ast.stmt] = []
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.For:
         return ast.For(
             self.target,
@@ -469,17 +493,17 @@ class AsyncForBuilderNode(StackSupportNode, typing=ast.AsyncFor):
     AsyncFor
     """
     fields = ("target", "iter", "body", "orelse", "type_comment", )
-    annotations = (ast.expr, ast.expr, List[ast.stmt], List[ast.stmt], List[object], )
+    annotations = (ast.expr, ast.expr, ast.stmt, ast.stmt, str, )
     @property
     def node(self)->ast.AsyncFor:
         return self._node
     def __init__(self, node: ast.AsyncFor, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.target: ast.expr = node.target
-        self.iter: ast.expr = node.iter
-        self.body: List[ast.stmt] = node.body
-        self.orelse: List[ast.stmt] = node.orelse
-        self.type_comment: List[object] = node.type_comment
+        self.target: Optional[ast.expr] = None
+        self.iter: Optional[ast.expr] = None
+        self.body: List[ast.stmt] = []
+        self.orelse: List[ast.stmt] = []
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.AsyncFor:
         return ast.AsyncFor(
             self.target,
@@ -497,15 +521,15 @@ class WhileBuilderNode(StackSupportNode, typing=ast.While):
     While
     """
     fields = ("test", "body", "orelse", )
-    annotations = (ast.expr, List[ast.stmt], List[ast.stmt], )
+    annotations = (ast.expr, ast.stmt, ast.stmt, )
     @property
     def node(self)->ast.While:
         return self._node
     def __init__(self, node: ast.While, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.test: ast.expr = node.test
-        self.body: List[ast.stmt] = node.body
-        self.orelse: List[ast.stmt] = node.orelse
+        self.test: Optional[ast.expr] = None
+        self.body: List[ast.stmt] = []
+        self.orelse: List[ast.stmt] = []
     def construct(self)->ast.While:
         return ast.While(
             self.test,
@@ -521,15 +545,15 @@ class IfBuilderNode(StackSupportNode, typing=ast.If):
     If
     """
     fields = ("test", "body", "orelse", )
-    annotations = (ast.expr, List[ast.stmt], List[ast.stmt], )
+    annotations = (ast.expr, ast.stmt, ast.stmt, )
     @property
     def node(self)->ast.If:
         return self._node
     def __init__(self, node: ast.If, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.test: ast.expr = node.test
-        self.body: List[ast.stmt] = node.body
-        self.orelse: List[ast.stmt] = node.orelse
+        self.test: Optional[ast.expr] = None
+        self.body: List[ast.stmt] = []
+        self.orelse: List[ast.stmt] = []
     def construct(self)->ast.If:
         return ast.If(
             self.test,
@@ -545,15 +569,15 @@ class WithBuilderNode(StackSupportNode, typing=ast.With):
     With
     """
     fields = ("items", "body", "type_comment", )
-    annotations = (List[ast.withitem], List[ast.stmt], List[object], )
+    annotations = (ast.withitem, ast.stmt, str, )
     @property
     def node(self)->ast.With:
         return self._node
     def __init__(self, node: ast.With, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.items: List[ast.withitem] = node.items
-        self.body: List[ast.stmt] = node.body
-        self.type_comment: List[object] = node.type_comment
+        self.items: List[ast.withitem] = []
+        self.body: List[ast.stmt] = []
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.With:
         return ast.With(
             self.items,
@@ -569,15 +593,15 @@ class AsyncWithBuilderNode(StackSupportNode, typing=ast.AsyncWith):
     AsyncWith
     """
     fields = ("items", "body", "type_comment", )
-    annotations = (List[ast.withitem], List[ast.stmt], List[object], )
+    annotations = (ast.withitem, ast.stmt, str, )
     @property
     def node(self)->ast.AsyncWith:
         return self._node
     def __init__(self, node: ast.AsyncWith, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.items: List[ast.withitem] = node.items
-        self.body: List[ast.stmt] = node.body
-        self.type_comment: List[object] = node.type_comment
+        self.items: List[ast.withitem] = []
+        self.body: List[ast.stmt] = []
+        self.type_comment: Optional[str] = None
     def construct(self)->ast.AsyncWith:
         return ast.AsyncWith(
             self.items,
@@ -593,14 +617,14 @@ class RaiseBuilderNode(StackSupportNode, typing=ast.Raise):
     Raise
     """
     fields = ("exc", "cause", )
-    annotations = (List[ast.expr], List[ast.expr], )
+    annotations = (ast.expr, ast.expr, )
     @property
     def node(self)->ast.Raise:
         return self._node
     def __init__(self, node: ast.Raise, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.exc: List[ast.expr] = node.exc
-        self.cause: List[ast.expr] = node.cause
+        self.exc: Optional[ast.expr] = None
+        self.cause: Optional[ast.expr] = None
     def construct(self)->ast.Raise:
         return ast.Raise(
             self.exc,
@@ -615,16 +639,16 @@ class TryBuilderNode(StackSupportNode, typing=ast.Try):
     Try
     """
     fields = ("body", "handlers", "orelse", "finalbody", )
-    annotations = (List[ast.stmt], List[ast.excepthandler], List[ast.stmt], List[ast.stmt], )
+    annotations = (ast.stmt, ast.excepthandler, ast.stmt, ast.stmt, )
     @property
     def node(self)->ast.Try:
         return self._node
     def __init__(self, node: ast.Try, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.body: List[ast.stmt] = node.body
-        self.handlers: List[ast.excepthandler] = node.handlers
-        self.orelse: List[ast.stmt] = node.orelse
-        self.finalbody: List[ast.stmt] = node.finalbody
+        self.body: List[ast.stmt] = []
+        self.handlers: List[ast.excepthandler] = []
+        self.orelse: List[ast.stmt] = []
+        self.finalbody: List[ast.stmt] = []
     def construct(self)->ast.Try:
         return ast.Try(
             self.body,
@@ -641,14 +665,14 @@ class AssertBuilderNode(StackSupportNode, typing=ast.Assert):
     Assert
     """
     fields = ("test", "msg", )
-    annotations = (ast.expr, List[ast.expr], )
+    annotations = (ast.expr, ast.expr, )
     @property
     def node(self)->ast.Assert:
         return self._node
     def __init__(self, node: ast.Assert, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.test: ast.expr = node.test
-        self.msg: List[ast.expr] = node.msg
+        self.test: Optional[ast.expr] = None
+        self.msg: Optional[ast.expr] = None
     def construct(self)->ast.Assert:
         return ast.Assert(
             self.test,
@@ -663,13 +687,13 @@ class ImportBuilderNode(StackSupportNode, typing=ast.Import):
     Import
     """
     fields = ("names", )
-    annotations = (List[ast.alias], )
+    annotations = (ast.alias, )
     @property
     def node(self)->ast.Import:
         return self._node
     def __init__(self, node: ast.Import, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.names: List[ast.alias] = node.names
+        self.names: List[ast.alias] = []
     def construct(self)->ast.Import:
         return ast.Import(
             self.names,
@@ -683,15 +707,15 @@ class ImportFromBuilderNode(StackSupportNode, typing=ast.ImportFrom):
     ImportFrom
     """
     fields = ("module", "names", "level", )
-    annotations = (List[object], List[ast.alias], List[object], )
+    annotations = (str, ast.alias, int, )
     @property
     def node(self)->ast.ImportFrom:
         return self._node
     def __init__(self, node: ast.ImportFrom, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.module: List[object] = node.module
-        self.names: List[ast.alias] = node.names
-        self.level: List[object] = node.level
+        self.module: Optional[str] = None
+        self.names: List[ast.alias] = []
+        self.level: Optional[int] = None
     def construct(self)->ast.ImportFrom:
         return ast.ImportFrom(
             self.module,
@@ -707,13 +731,13 @@ class GlobalBuilderNode(StackSupportNode, typing=ast.Global):
     Global
     """
     fields = ("names", )
-    annotations = (List[object], )
+    annotations = (str, )
     @property
     def node(self)->ast.Global:
         return self._node
     def __init__(self, node: ast.Global, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.names: List[object] = node.names
+        self.names: List[str] = []
     def construct(self)->ast.Global:
         return ast.Global(
             self.names,
@@ -727,13 +751,13 @@ class NonlocalBuilderNode(StackSupportNode, typing=ast.Nonlocal):
     Nonlocal
     """
     fields = ("names", )
-    annotations = (List[object], )
+    annotations = (str, )
     @property
     def node(self)->ast.Nonlocal:
         return self._node
     def __init__(self, node: ast.Nonlocal, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.names: List[object] = node.names
+        self.names: List[str] = []
     def construct(self)->ast.Nonlocal:
         return ast.Nonlocal(
             self.names,
@@ -753,7 +777,7 @@ class ExprBuilderNode(StackSupportNode, typing=ast.Expr):
         return self._node
     def __init__(self, node: ast.Expr, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.Expr:
         return ast.Expr(
             self.value,
@@ -847,14 +871,14 @@ class BoolOpBuilderNode(StackSupportNode, typing=ast.BoolOp):
     BoolOp
     """
     fields = ("op", "values", )
-    annotations = (ast.boolop, List[ast.expr], )
+    annotations = (ast.boolop, ast.expr, )
     @property
     def node(self)->ast.BoolOp:
         return self._node
     def __init__(self, node: ast.BoolOp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.op: ast.boolop = node.op
-        self.values: List[ast.expr] = node.values
+        self.op: Optional[ast.boolop] = None
+        self.values: List[ast.expr] = []
     def construct(self)->ast.BoolOp:
         return ast.BoolOp(
             self.op,
@@ -875,8 +899,8 @@ class NamedExprBuilderNode(StackSupportNode, typing=ast.NamedExpr):
         return self._node
     def __init__(self, node: ast.NamedExpr, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.target: ast.expr = node.target
-        self.value: ast.expr = node.value
+        self.target: Optional[ast.expr] = None
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.NamedExpr:
         return ast.NamedExpr(
             self.target,
@@ -897,9 +921,9 @@ class BinOpBuilderNode(StackSupportNode, typing=ast.BinOp):
         return self._node
     def __init__(self, node: ast.BinOp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.left: ast.expr = node.left
-        self.op: ast.operator = node.op
-        self.right: ast.expr = node.right
+        self.left: Optional[ast.expr] = None
+        self.op: Optional[ast.operator] = None
+        self.right: Optional[ast.expr] = None
     def construct(self)->ast.BinOp:
         return ast.BinOp(
             self.left,
@@ -921,8 +945,8 @@ class UnaryOpBuilderNode(StackSupportNode, typing=ast.UnaryOp):
         return self._node
     def __init__(self, node: ast.UnaryOp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.op: ast.unaryop = node.op
-        self.operand: ast.expr = node.operand
+        self.op: Optional[ast.unaryop] = None
+        self.operand: Optional[ast.expr] = None
     def construct(self)->ast.UnaryOp:
         return ast.UnaryOp(
             self.op,
@@ -943,8 +967,8 @@ class LambdaBuilderNode(StackSupportNode, typing=ast.Lambda):
         return self._node
     def __init__(self, node: ast.Lambda, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.args: ast.arguments = node.args
-        self.body: ast.expr = node.body
+        self.args: Optional[ast.arguments] = None
+        self.body: Optional[ast.expr] = None
     def construct(self)->ast.Lambda:
         return ast.Lambda(
             self.args,
@@ -965,9 +989,9 @@ class IfExpBuilderNode(StackSupportNode, typing=ast.IfExp):
         return self._node
     def __init__(self, node: ast.IfExp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.test: ast.expr = node.test
-        self.body: ast.expr = node.body
-        self.orelse: ast.expr = node.orelse
+        self.test: Optional[ast.expr] = None
+        self.body: Optional[ast.expr] = None
+        self.orelse: Optional[ast.expr] = None
     def construct(self)->ast.IfExp:
         return ast.IfExp(
             self.test,
@@ -983,14 +1007,14 @@ class DictBuilderNode(StackSupportNode, typing=ast.Dict):
     Dict
     """
     fields = ("keys", "values", )
-    annotations = (List[ast.expr], List[ast.expr], )
+    annotations = (ast.expr, ast.expr, )
     @property
     def node(self)->ast.Dict:
         return self._node
     def __init__(self, node: ast.Dict, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.keys: List[ast.expr] = node.keys
-        self.values: List[ast.expr] = node.values
+        self.keys: List[ast.expr] = []
+        self.values: List[ast.expr] = []
     def construct(self)->ast.Dict:
         return ast.Dict(
             self.keys,
@@ -1005,13 +1029,13 @@ class SetBuilderNode(StackSupportNode, typing=ast.Set):
     Set
     """
     fields = ("elts", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.Set:
         return self._node
     def __init__(self, node: ast.Set, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elts: List[ast.expr] = node.elts
+        self.elts: List[ast.expr] = []
     def construct(self)->ast.Set:
         return ast.Set(
             self.elts,
@@ -1025,14 +1049,14 @@ class ListCompBuilderNode(StackSupportNode, typing=ast.ListComp):
     ListComp
     """
     fields = ("elt", "generators", )
-    annotations = (ast.expr, List[ast.comprehension], )
+    annotations = (ast.expr, ast.comprehension, )
     @property
     def node(self)->ast.ListComp:
         return self._node
     def __init__(self, node: ast.ListComp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elt: ast.expr = node.elt
-        self.generators: List[ast.comprehension] = node.generators
+        self.elt: Optional[ast.expr] = None
+        self.generators: List[ast.comprehension] = []
     def construct(self)->ast.ListComp:
         return ast.ListComp(
             self.elt,
@@ -1047,14 +1071,14 @@ class SetCompBuilderNode(StackSupportNode, typing=ast.SetComp):
     SetComp
     """
     fields = ("elt", "generators", )
-    annotations = (ast.expr, List[ast.comprehension], )
+    annotations = (ast.expr, ast.comprehension, )
     @property
     def node(self)->ast.SetComp:
         return self._node
     def __init__(self, node: ast.SetComp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elt: ast.expr = node.elt
-        self.generators: List[ast.comprehension] = node.generators
+        self.elt: Optional[ast.expr] = None
+        self.generators: List[ast.comprehension] = []
     def construct(self)->ast.SetComp:
         return ast.SetComp(
             self.elt,
@@ -1069,15 +1093,15 @@ class DictCompBuilderNode(StackSupportNode, typing=ast.DictComp):
     DictComp
     """
     fields = ("key", "value", "generators", )
-    annotations = (ast.expr, ast.expr, List[ast.comprehension], )
+    annotations = (ast.expr, ast.expr, ast.comprehension, )
     @property
     def node(self)->ast.DictComp:
         return self._node
     def __init__(self, node: ast.DictComp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.key: ast.expr = node.key
-        self.value: ast.expr = node.value
-        self.generators: List[ast.comprehension] = node.generators
+        self.key: Optional[ast.expr] = None
+        self.value: Optional[ast.expr] = None
+        self.generators: List[ast.comprehension] = []
     def construct(self)->ast.DictComp:
         return ast.DictComp(
             self.key,
@@ -1093,14 +1117,14 @@ class GeneratorExpBuilderNode(StackSupportNode, typing=ast.GeneratorExp):
     GeneratorExp
     """
     fields = ("elt", "generators", )
-    annotations = (ast.expr, List[ast.comprehension], )
+    annotations = (ast.expr, ast.comprehension, )
     @property
     def node(self)->ast.GeneratorExp:
         return self._node
     def __init__(self, node: ast.GeneratorExp, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elt: ast.expr = node.elt
-        self.generators: List[ast.comprehension] = node.generators
+        self.elt: Optional[ast.expr] = None
+        self.generators: List[ast.comprehension] = []
     def construct(self)->ast.GeneratorExp:
         return ast.GeneratorExp(
             self.elt,
@@ -1121,7 +1145,7 @@ class AwaitBuilderNode(StackSupportNode, typing=ast.Await):
         return self._node
     def __init__(self, node: ast.Await, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.Await:
         return ast.Await(
             self.value,
@@ -1135,13 +1159,13 @@ class YieldBuilderNode(StackSupportNode, typing=ast.Yield):
     Yield
     """
     fields = ("value", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.Yield:
         return self._node
     def __init__(self, node: ast.Yield, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: List[ast.expr] = node.value
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.Yield:
         return ast.Yield(
             self.value,
@@ -1161,7 +1185,7 @@ class YieldFromBuilderNode(StackSupportNode, typing=ast.YieldFrom):
         return self._node
     def __init__(self, node: ast.YieldFrom, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
+        self.value: Optional[ast.expr] = None
     def construct(self)->ast.YieldFrom:
         return ast.YieldFrom(
             self.value,
@@ -1175,15 +1199,15 @@ class CompareBuilderNode(StackSupportNode, typing=ast.Compare):
     Compare
     """
     fields = ("left", "ops", "comparators", )
-    annotations = (ast.expr, List[ast.cmpop], List[ast.expr], )
+    annotations = (ast.expr, ast.cmpop, ast.expr, )
     @property
     def node(self)->ast.Compare:
         return self._node
     def __init__(self, node: ast.Compare, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.left: ast.expr = node.left
-        self.ops: List[ast.cmpop] = node.ops
-        self.comparators: List[ast.expr] = node.comparators
+        self.left: Optional[ast.expr] = None
+        self.ops: List[ast.cmpop] = []
+        self.comparators: List[ast.expr] = []
     def construct(self)->ast.Compare:
         return ast.Compare(
             self.left,
@@ -1199,15 +1223,15 @@ class CallBuilderNode(StackSupportNode, typing=ast.Call):
     Call
     """
     fields = ("func", "args", "keywords", )
-    annotations = (ast.expr, List[ast.expr], List[ast.keyword], )
+    annotations = (ast.expr, ast.expr, ast.keyword, )
     @property
     def node(self)->ast.Call:
         return self._node
     def __init__(self, node: ast.Call, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.func: ast.expr = node.func
-        self.args: List[ast.expr] = node.args
-        self.keywords: List[ast.keyword] = node.keywords
+        self.func: Optional[ast.expr] = None
+        self.args: List[ast.expr] = []
+        self.keywords: List[ast.keyword] = []
     def construct(self)->ast.Call:
         return ast.Call(
             self.func,
@@ -1223,15 +1247,15 @@ class FormattedValueBuilderNode(StackSupportNode, typing=ast.FormattedValue):
     FormattedValue
     """
     fields = ("value", "conversion", "format_spec", )
-    annotations = (ast.expr, object, List[ast.expr], )
+    annotations = (ast.expr, int, ast.expr, )
     @property
     def node(self)->ast.FormattedValue:
         return self._node
     def __init__(self, node: ast.FormattedValue, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
-        self.conversion: object = node.conversion
-        self.format_spec: List[ast.expr] = node.format_spec
+        self.value: Optional[ast.expr] = None
+        self.conversion: Optional[int] = None
+        self.format_spec: Optional[ast.expr] = None
     def construct(self)->ast.FormattedValue:
         return ast.FormattedValue(
             self.value,
@@ -1247,13 +1271,13 @@ class JoinedStrBuilderNode(StackSupportNode, typing=ast.JoinedStr):
     JoinedStr
     """
     fields = ("values", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.JoinedStr:
         return self._node
     def __init__(self, node: ast.JoinedStr, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.values: List[ast.expr] = node.values
+        self.values: List[ast.expr] = []
     def construct(self)->ast.JoinedStr:
         return ast.JoinedStr(
             self.values,
@@ -1267,14 +1291,14 @@ class ConstantBuilderNode(StackSupportNode, typing=ast.Constant):
     Constant
     """
     fields = ("value", "kind", )
-    annotations = (object, List[object], )
+    annotations = (Union[str, int, float, complex, bool, None], str, )
     @property
     def node(self)->ast.Constant:
         return self._node
     def __init__(self, node: ast.Constant, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: object = node.value
-        self.kind: List[object] = node.kind
+        self.value: Optional[Union[str, int, float, complex, bool, None]] = None
+        self.kind: Optional[str] = None
     def construct(self)->ast.Constant:
         return ast.Constant(
             self.value,
@@ -1289,15 +1313,15 @@ class AttributeBuilderNode(StackSupportNode, typing=ast.Attribute):
     Attribute
     """
     fields = ("value", "attr", "ctx", )
-    annotations = (ast.expr, object, ast.expr_context, )
+    annotations = (ast.expr, str, ast.expr_context, )
     @property
     def node(self)->ast.Attribute:
         return self._node
     def __init__(self, node: ast.Attribute, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
-        self.attr: object = node.attr
-        self.ctx: ast.expr_context = node.ctx
+        self.value: Optional[ast.expr] = None
+        self.attr: Optional[str] = None
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.Attribute:
         return ast.Attribute(
             self.value,
@@ -1319,9 +1343,9 @@ class SubscriptBuilderNode(StackSupportNode, typing=ast.Subscript):
         return self._node
     def __init__(self, node: ast.Subscript, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
-        self.slice: ast.expr = node.slice
-        self.ctx: ast.expr_context = node.ctx
+        self.value: Optional[ast.expr] = None
+        self.slice: Optional[ast.expr] = None
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.Subscript:
         return ast.Subscript(
             self.value,
@@ -1343,8 +1367,8 @@ class StarredBuilderNode(StackSupportNode, typing=ast.Starred):
         return self._node
     def __init__(self, node: ast.Starred, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.value: ast.expr = node.value
-        self.ctx: ast.expr_context = node.ctx
+        self.value: Optional[ast.expr] = None
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.Starred:
         return ast.Starred(
             self.value,
@@ -1359,14 +1383,14 @@ class NameBuilderNode(StackSupportNode, typing=ast.Name):
     Name
     """
     fields = ("id", "ctx", )
-    annotations = (object, ast.expr_context, )
+    annotations = (str, ast.expr_context, )
     @property
     def node(self)->ast.Name:
         return self._node
     def __init__(self, node: ast.Name, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.id: object = node.id
-        self.ctx: ast.expr_context = node.ctx
+        self.id: Optional[str] = None
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.Name:
         return ast.Name(
             self.id,
@@ -1381,14 +1405,14 @@ class ListBuilderNode(StackSupportNode, typing=ast.List):
     List
     """
     fields = ("elts", "ctx", )
-    annotations = (List[ast.expr], ast.expr_context, )
+    annotations = (ast.expr, ast.expr_context, )
     @property
     def node(self)->ast.List:
         return self._node
     def __init__(self, node: ast.List, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elts: List[ast.expr] = node.elts
-        self.ctx: ast.expr_context = node.ctx
+        self.elts: List[ast.expr] = []
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.List:
         return ast.List(
             self.elts,
@@ -1403,18 +1427,42 @@ class TupleBuilderNode(StackSupportNode, typing=ast.Tuple):
     Tuple
     """
     fields = ("elts", "ctx", )
-    annotations = (List[ast.expr], ast.expr_context, )
+    annotations = (ast.expr, ast.expr_context, )
     @property
     def node(self)->ast.Tuple:
         return self._node
     def __init__(self, node: ast.Tuple, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.elts: List[ast.expr] = node.elts
-        self.ctx: ast.expr_context = node.ctx
+        self.elts: List[ast.expr] = []
+        self.ctx: Optional[ast.expr_context] = None
     def construct(self)->ast.Tuple:
         return ast.Tuple(
             self.elts,
             self.ctx,
+        )
+    
+
+class SliceBuilderNode(StackSupportNode, typing=ast.Slice):
+    """
+    This is a autogenerated node to support the 
+    creation of ast nodes of variety
+    Slice
+    """
+    fields = ("lower", "upper", "step", )
+    annotations = (ast.expr, ast.expr, ast.expr, )
+    @property
+    def node(self)->ast.Slice:
+        return self._node
+    def __init__(self, node: ast.Slice, parent: Optional[StackSupportNode]=None):
+        super().__init__(node, parent)
+        self.lower: Optional[ast.expr] = None
+        self.upper: Optional[ast.expr] = None
+        self.step: Optional[ast.expr] = None
+    def construct(self)->ast.Slice:
+        return ast.Slice(
+            self.lower,
+            self.upper,
+            self.step,
         )
     
 
@@ -1495,30 +1543,6 @@ class DelBuilderNode(StackSupportNode, typing=ast.Del):
     def construct(self)->ast.Del:
         return ast.Del(
             
-        )
-    
-
-class SliceBuilderNode(StackSupportNode, typing=ast.Slice):
-    """
-    This is a autogenerated node to support the 
-    creation of ast nodes of variety
-    Slice
-    """
-    fields = ("lower", "upper", "step", )
-    annotations = (List[ast.expr], List[ast.expr], List[ast.expr], )
-    @property
-    def node(self)->ast.Slice:
-        return self._node
-    def __init__(self, node: ast.Slice, parent: Optional[StackSupportNode]=None):
-        super().__init__(node, parent)
-        self.lower: List[ast.expr] = node.lower
-        self.upper: List[ast.expr] = node.upper
-        self.step: List[ast.expr] = node.step
-    def construct(self)->ast.Slice:
-        return ast.Slice(
-            self.lower,
-            self.upper,
-            self.step,
         )
     
 
@@ -2229,15 +2253,15 @@ class ExceptHandlerBuilderNode(StackSupportNode, typing=ast.ExceptHandler):
     ExceptHandler
     """
     fields = ("type", "name", "body", )
-    annotations = (List[ast.expr], List[object], List[ast.stmt], )
+    annotations = (ast.expr, str, ast.stmt, )
     @property
     def node(self)->ast.ExceptHandler:
         return self._node
     def __init__(self, node: ast.ExceptHandler, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.type: List[ast.expr] = node.type
-        self.name: List[object] = node.name
-        self.body: List[ast.stmt] = node.body
+        self.type: Optional[ast.expr] = None
+        self.name: Optional[str] = None
+        self.body: List[ast.stmt] = []
     def construct(self)->ast.ExceptHandler:
         return ast.ExceptHandler(
             self.type,
@@ -2373,14 +2397,14 @@ class TypeIgnoreBuilderNode(StackSupportNode, typing=ast.TypeIgnore):
     TypeIgnore
     """
     fields = ("lineno", "tag", )
-    annotations = (object, object, )
+    annotations = (int, str, )
     @property
     def node(self)->ast.TypeIgnore:
         return self._node
     def __init__(self, node: ast.TypeIgnore, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.lineno: object = node.lineno
-        self.tag: object = node.tag
+        self.lineno: Optional[int] = None
+        self.tag: Optional[str] = None
     def construct(self)->ast.TypeIgnore:
         return ast.TypeIgnore(
             self.lineno,
@@ -2395,13 +2419,13 @@ class StrBuilderNode(StackSupportNode, typing=ast.Str):
     Str
     """
     fields = ("values", )
-    annotations = (List[ast.expr], )
+    annotations = (ast.expr, )
     @property
     def node(self)->ast.Str:
         return self._node
     def __init__(self, node: ast.Str, parent: Optional[StackSupportNode]=None):
         super().__init__(node, parent)
-        self.values: List[ast.expr] = node.values
+        self.values: List[ast.expr] = []
     def construct(self)->ast.Str:
         return ast.Str(
             self.values,

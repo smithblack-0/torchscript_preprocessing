@@ -1,222 +1,173 @@
 import ast
 import string
+import textwrap
+import re
 from dataclasses import dataclass
-from typing import List, Union, Dict, Optional
-import astroid
-
-grammer = """
-
-module Python
-{
-    mod = Module(stmt* body, type_ignore* type_ignores)
-        | Interactive(stmt* body)
-        | Expression(expr body)
-        | FunctionType(expr* argtypes, expr returns)
-
-    stmt = FunctionDef(identifier name, arguments args,
-                       stmt* body, expr* decorator_list, expr? returns,
-                       string? type_comment)
-          | AsyncFunctionDef(identifier name, arguments args,
-                             stmt* body, expr* decorator_list, expr? returns,
-                             string? type_comment)
-
-          | ClassDef(identifier name,
-             expr* bases,
-             keyword* keywords,
-             stmt* body,
-             expr* decorator_list)
-          | Return(expr? value)
-
-          | Delete(expr* targets)
-          | Assign(expr* targets, expr value, string? type_comment)
-          | AugAssign(expr target, operator op, expr value)
-          -- 'simple' indicates that we annotate simple name without parens
-          | AnnAssign(expr target, expr annotation, expr? value, int simple)
-
-          -- use 'orelse' because else is a keyword in target languages
-          | For(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
-          | AsyncFor(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
-          | While(expr test, stmt* body, stmt* orelse)
-          | If(expr test, stmt* body, stmt* orelse)
-          | With(withitem* items, stmt* body, string? type_comment)
-          | AsyncWith(withitem* items, stmt* body, string? type_comment)
-
-          | Match(expr subject, match_case* cases)
-
-          | Raise(expr? exc, expr? cause)
-          | Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
-          | Assert(expr test, expr? msg)
-
-          | Import(alias* names)
-          | ImportFrom(identifier? module, alias* names, int? level)
-
-          | Global(identifier* names)
-          | Nonlocal(identifier* names)
-          | Expr(expr value)
-          | Pass | Break | Continue
-
-          -- col_offset is the byte offset in the utf8 string the parser uses
-          attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-          -- boolOp() can use left & right?
-    expr = BoolOp(boolop op, expr* values)
-         | NamedExpr(expr target, expr value)
-         | BinOp(expr left, operator op, expr right)
-         | UnaryOp(unaryop op, expr operand)
-         | Lambda(arguments args, expr body)
-         | IfExp(expr test, expr body, expr orelse)
-         | Dict(expr* keys, expr* values)
-         | Set(expr* elts)
-         | ListComp(expr elt, comprehension* generators)
-         | SetComp(expr elt, comprehension* generators)
-         | DictComp(expr key, expr value, comprehension* generators)
-         | GeneratorExp(expr elt, comprehension* generators)
-         -- the grammar constrains where yield expressions can occur
-         | Await(expr value)
-         | Yield(expr? value)
-         | YieldFrom(expr value)
-         -- need sequences for compare to distinguish between
-         -- x < 4 < 3 and (x < 4) < 3
-         | Compare(expr left, cmpop* ops, expr* comparators)
-         | Call(expr func, expr* args, keyword* keywords)
-         | FormattedValue(expr value, int conversion, expr? format_spec)
-         | JoinedStr(expr* values)
-         | Constant(constant value, string? kind)
-
-         -- the following expression can appear in assignment context
-         | Attribute(expr value, identifier attr, expr_context ctx)
-         | Subscript(expr value, expr slice, expr_context ctx)
-         | Starred(expr value, expr_context ctx)
-         | Name(identifier id, expr_context ctx)
-         | List(expr* elts, expr_context ctx)
-         | Tuple(expr* elts, expr_context ctx)
-
-         -- can appear only in Subscript
-         | Slice(expr? lower, expr? upper, expr? step)
-
-          -- col_offset is the byte offset in the utf8 string the parser uses
-          attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-    expr_context = Load | Store | Del
-
-    boolop = And | Or
-
-    operator = Add | Sub | Mult | MatMult | Div | Mod | Pow | LShift
-                 | RShift | BitOr | BitXor | BitAnd | FloorDiv
-
-    unaryop = Invert | Not | UAdd | USub
-
-    cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
-
-    comprehension = (expr target, expr iter, expr* ifs, int is_async)
-
-    excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
-                    attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-    arguments = (arg* posonlyargs, arg* args, arg? vararg, arg* kwonlyargs,
-                 expr* kw_defaults, arg? kwarg, expr* defaults)
-
-    arg = (identifier arg, expr? annotation, string? type_comment)
-           attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-    -- keyword arguments supplied to call (NULL identifier for **kwargs)
-    keyword = (identifier? arg, expr value)
-               attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-    -- import name with optional 'as' alias.
-    alias = (identifier name, identifier? asname)
-             attributes (int lineno, int col_offset, int? end_lineno, int? end_col_offset)
-
-    withitem = (expr context_expr, expr? optional_vars)
-
-    match_case = (pattern pattern, expr? guard, stmt* body)
-
-    pattern = MatchValue(expr value)
-            | MatchSingleton(constant value)
-            | MatchSequence(pattern* patterns)
-            | MatchMapping(expr* keys, pattern* patterns, identifier? rest)
-            | MatchClass(expr cls, pattern* patterns, identifier* kwd_attrs, pattern* kwd_patterns)
-
-            | MatchStar(identifier? name)
-            -- The optional "rest" MatchMapping parameter handles capturing extra mapping keys
-
-            | MatchAs(pattern? pattern, identifier? name)
-            | MatchOr(pattern* patterns)
-
-             attributes (int lineno, int col_offset, int end_lineno, int end_col_offset)
-
-    type_ignore = TypeIgnore(int lineno, string tag)
-}
-"""
+from typing import List, Union, Dict, Optional, Type
+grammer = open("_ast_grammer_text.txt").read()
+literal_map = {'identifier' : (str, "str"),
+               'constant' : (Union[str, int, float, complex, bool, None], "Union[str, int, float, complex, bool, None]"),
+               'string' : (str, "str"),
+               'int' : (int, "int")
+               }
 
 @dataclass
-class sig_item_info:
-    """
-    A data class.
-
-    Gives the name of this
-    signature, along with the
-    associated typing.
-    """
+class signature_node:
+    """Represents one item in a signature"""
     name: str
-    typing: str
-    flavor: str
+    type_str: str
+    type: Type
+    list: bool = False
+    optional: bool = False
 
-def remove_comments(item: str)->str:
-    """
-    Removes grammer based comments
+@dataclass
+class subchild:
+    """Represents a subchild of an ast feature"""
+    name: str
+    ast_typing: Type[ast.AST]
+    arguments: List[signature_node]
+    def lookup(self, argument: str)->signature_node:
+        for arg in self.arguments:
+            if arg.name == argument:
+                return arg
+@dataclass
+class syntax_group:
+    """Represents a top level ast group"""
+    name: str
+    ast_feature: Optional[ast.AST]
+    subclasses: List[subchild]
+    def lookup(self, name: str)->subchild:
+        for subchild in self.subclasses:
+            if subchild.name == name:
+                return subchild
 
-    :param item:
-    :return:
+
+@dataclass
+class syntax_tree:
+    """Represents the entire syntax tree"""
+    groups: List[syntax_group]
+    def lookup(self, name: str)->subchild:
+        for group in self.groups:
+            if group.lookup(name) is not None:
+                return group.lookup(name)
+
+def get_syntax_groups(grammer: str)->List[str]:
     """
-    lines = grammer.split("\n")
-    new_lines = []
+    Splits the grammer into syntax groups
+    by detecting where characters immediately
+    follow new lines
+
+    :return: List[str]
+    """
+    grammer = textwrap.dedent(grammer)
+    lines = grammer.splitlines()
+    groups = []
+    startslice = 0
+    endslice = 0
     for line in lines:
-        if line.find("--") == -1:
-            new_lines.append(line)
-    return "\n".join(new_lines)
+        if len(line) > 0 and line[0] in string.ascii_letters:
+            #This is a root of a group
+            groups.append(grammer[startslice:endslice])
+            startslice = endslice
+        endslice += len(line) + 1 #The plus one is for the new line char
+    return groups
 
-def get_signature_variety(name: str)->Optional[List[sig_item_info]]:
-    """
-    Gets, from the grammer file above, info
-    on the signature which
-    
-    :param name: 
-    :return: 
-    """
-    stripped_grammer = remove_comments(grammer)
+def get_subchild(subchild_grammer: str)->subchild:
+    """Create a subchild from an isolated syntax string"""
+    if "(" in subchild_grammer and ")" in subchild_grammer:
+        print("trying", subchild_grammer)
+        #Arguments exist. We must now construct them
+        name, args = subchild_grammer.split("(")
+        args = args.rstrip(")")
+        args = [item.strip() for item in args.split(",")]
+        finished_arguments = []
+        for arg in args:
+            is_list = False
+            is_optional = False
+            pieces = re.split(r" +", arg)
+            typehint, argname = pieces
 
-    for option in string.whitespace:
-        #Detects cases with no parameters by
-        #detecting keyword, followed by whitespace
-        if stripped_grammer.find(name + option) != -1:
-            #No supplementary info
-            return []
-    if stripped_grammer.find(name + "(") != -1:
-        start = stripped_grammer.find(name + "(") + len(name) + 1
-        end = stripped_grammer.find(")", start)
-        substring = stripped_grammer[start:end]
-        subsections = substring.split(",")
-        subsections = [subsection.strip() for subsection in subsections]
-        output = []
-        for subsection in subsections:
-            pieces = subsection.split(" ")
-            typing, name = pieces
-            accessory = None
-            if typing.endswith("*") or typing.endswith("?"):
-                #This stuff is used to indicate lists
-                accessory = typing[-1]
-                typing = typing[:-1]
-            if hasattr(ast, typing):
-                typing = "ast." + typing
+            #Handle special varietations
+            if typehint.endswith("*"):
+                is_list = True
+                typehint = typehint.strip("*")
+            if typehint.endswith("?"):
+                is_optional = True
+                typehint = typehint.strip("?")
+
+            #Fetch typing info
+            if hasattr(ast, typehint):
+                arg_typing = getattr(ast, typehint)
+                arg_typestring = arg_typing.__name__
             else:
-                typing = "object"
-            if accessory is not None:
-                #I am not confident that "?" is being handled properly.
-                typing = "List[" + typing + "]"
-                output.append(sig_item_info(name, typing, "list"))
+                arg_typing, arg_typestring = literal_map[typehint]
+            if is_list:
+                arg_typestring = "List[{}]".format(arg_typestring)
+            if is_optional:
+                arg_typestring = "Optional[{}]".format(arg_typestring)
+
+            #Make and store node
+            signode = signature_node(argname, arg_typestring, arg_typing, is_list, is_optional)
+            finished_arguments.append(signode)
+    else:
+        #No arguments exist. Simply generate name, and indicate state
+        name = subchild_grammer.strip()
+        finished_arguments = None
+    ast_typing = getattr(ast, name)
+    return subchild(name, ast_typing, finished_arguments)
+
+def get_syntactic_tree(grammer: str):
+    """
+    Gets the syntactic support tree from the
+    source documentation
+
+    :param grammer: The grammer definitions
+    :return: The syntactic tree.
+    """
+    groups = get_syntax_groups(grammer)
+    output_groups = []
+    for group in groups:
+        if "=" not in group:
+            #Skips blank strings at the start, or anything else which is not formatted right.
+            continue
+
+        #Fetch syntax group name and content.
+        name, subclasses = group.split("=")
+        name = name.strip().strip("\n")
+        if not hasattr(ast, name):
+            #TODO: revise
+            #This is a fix for the fact match is not in python 3.9
+            continue
+
+        subclasses = subclasses.strip().strip("\n\n") #Strip end chars
+        subclasses = re.sub(r"--.*", "", subclasses) #Strip comments out of file
+        subclasses = [item.strip() for item in subclasses.split("|")]
+        output_classes = []
+        for subclass in subclasses:
+            print("building", name, "subclass", subclass)
+            if subclass.startswith("("):
+                #This does a little rewriting, such that, for example,
+                #   comprehension = (expr target, expr iter, expr* ifs, int is_async)
+                # will instead be seen as
+                #   comprehension = comprehension(expr target, expr iter, expr* ifs, int is_async)
+                print('lazy documentation detected')
+                subclass = name + subclass
+                print("now building", name, "subclass", subclass)
+
+
+            if "(" in subclass:
+                subclassname = next(re.finditer(r'.+(?=\()', subclass)).string
             else:
-                output.append(sig_item_info(name, typing, "standard"))
-        return output
-    return None
+                subclassname = subclass
+            if not hasattr(ast, subclassname):
+                continue
+            output_classes.append(get_subchild(subclass))
+        node = syntax_group(name, getattr(ast, name), output_classes)
+        output_groups.append(node)
+    return syntax_tree(output_groups)
+
+tree = get_syntactic_tree(grammer)
+
+
+
 

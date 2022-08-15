@@ -6,6 +6,7 @@ Responsible for autogeneration to save me time
 
 import ast
 from typing import List
+from typing import get_args
 
 import _ast_grammer
 import inspect
@@ -46,38 +47,45 @@ class {ClassName}BuilderNode(StackSupportNode, typing={astType}):
 
 
 
-storage_template = "self.{name}: {typing} = node.{name}"
+setup_template = "self.{name}: Optional[{typing}] = None"
+list_setup_template = "self.{name}: List[{typing}] = []"
 usage_template = "self.{name},"
 fieldinfo_template = "\"{name}\", "
 annotationsinfo_template = "{annotation}, "
 
 #Go generate required typing info
 
-_ast_grammer.get_signature_variety(ast.BoolOp.__name__)
+_ast_grammer.get_signatures_info(ast.arguments.__name__)
+
 codeblocks: List[str] = []
 for node in nodes:
     #Get the info
     name = node.__name__
     type = "ast." + name
-    signature = _ast_grammer.get_signature_variety(name)
-
+    try:
+        signature = _ast_grammer.get_signatures_info(name)
+    except Exception as err:
+        print("while handling", name)
+        raise err
     if signature is not None:
         #Create the feature storage and usage code
         field_info = [fieldinfo_template.format(name = sig.name) for sig in signature]
-        annotations_info = [annotationsinfo_template.format(annotation = sig.typing) for sig in signature]
-        feature_storage = [storage_template.format(name=sig.name, typing = sig.typing) for sig in signature]
+        annotations_info = [annotationsinfo_template.format(annotation = sig.type_name) for sig in signature]
+        feature_setup = [list_setup_template.format(name=sig.name, typing = sig.type_name) if sig.accessory is list
+                         else setup_template.format(name=sig.name, typing=sig.type_name)
+                         for sig in signature]
         usage = [usage_template.format(name=sig.name) for sig in signature]
 
         field_info = "".join(field_info)
         annotations_info = "".join(annotations_info)
-        feature_storage = "\n        ".join(feature_storage)
+        feature_setup = "\n        ".join(feature_setup)
         usage = "\n            ".join(usage)
 
         #Format the class, and append
         classcode = class_build_template.format(
             ClassName=name,
             astType=type,
-            feature_storage=feature_storage,
+            feature_storage=feature_setup,
             feature_load=usage,
             field_info = field_info,
             annotation_info = annotations_info

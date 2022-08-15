@@ -2,7 +2,8 @@ import ast
 import copy
 import inspect
 from dataclasses import dataclass
-from typing import Any, List, Tuple, Dict, Type, Optional, Union, Callable
+import typing as typing_std_lib #I had already used typing in code.
+from typing import Any, List, Tuple, Dict, Type, Optional, Union, Callable, Generator
 from copy import deepcopy
 
 """
@@ -16,9 +17,6 @@ Completely preprocessing a node consists
 of going through all subnodes, attaching
 the results to the created builder, 
 and returning the results.
-
-
-
 """
 
 
@@ -28,6 +26,8 @@ and returning the results.
 #Note that it is the case that classes defined
 #later in this source code have lower priority
 #then those defined earlier.
+
+
 
 class StackSupportNode():
     """
@@ -45,7 +45,7 @@ class StackSupportNode():
     Various subclasses take care of building the various
     node types.
     """
-    registry: Dict[Type[ast.AST], Type["StackSupportNode"]] = {}
+    registry: Dict[Type, Type["StackSupportNode"]] = {}
     fields = ()
     annotations = ()
     @property
@@ -63,22 +63,41 @@ class StackSupportNode():
     def push(self, node: Union[ast.AST, List[ast.AST]])->"StackSupportNode":
         """Push a new node onto the stack"""
         subclass = self.get_subclass(node.__class__)
-        if self.parent is None:
-            return subclass(node, self)
-        else:
-            for field, typing in zip(self.fields, self.annotations):
-                if getattr(self, field) is node:
-                    return subclass(node, self, typing)
-            raise ValueError("Attempt to push node not on ast feature.")
+        return subclass(node, self)
     def pop(self)->ast.AST:
         """Pops the current node off the stack. Returns the constructed ast node"""
         return self.construct()
     def construct(self)->ast.AST:
         """Constructs a new node from the current parameters"""
         raise NotImplementedError()
-    def __init_subclass__(cls, typing: Type[ast.AST]):
+    def place(self, fieldname: str, value: Any):
+        """Places the given value into the given fieldname. Lists are appended to. Raw slots are replaced"""
+        if isinstance(getattr(self, fieldname), list):
+            getattr(self, fieldname).append(value)
+        assert getattr(self, fieldname) is None, "Attribute of name %s already set" % fieldname
+        setattr(self, fieldname, value)
+    def get_child_iterator(self)->Generator[Tuple[str, Any], None, None]:
+        """
+        Iterates over every node directly attached
+        to the ast node. Notably, indicates the
+        field we are currently working in.
+        """
+        for fieldname, value in ast.iter_fields(self.node):
+            if isinstance(value, list):
+                for subitem in value:
+                    yield fieldname, subitem
+            else:
+                yield fieldname, value
+    def __init_subclass__(cls, typing: Type):
         """Registers the subclass associated with the given ast node"""
-        cls.registry[typing] = cls
+        if typing_std_lib.get_origin(typing) is Union:
+            #Get union arguments then store each one in association
+            args = typing_std_lib.get_args(typing)
+        else:
+            args = [typing]
+        for arg in args:
+            cls.registry[arg] = cls
+
     def __init__(self,
                  node: Optional[Union[ast.AST, List[ast.AST]]]=None,
                  parent: Optional["StackSupportNode"] = None,
@@ -89,13 +108,12 @@ class StackSupportNode():
 
 class listSupportNode(StackSupportNode, typing=list):
     """
-    A node for generating list features. Some
-    features of an ast node will be a list, which
-    must later be compiled into some sort of
-    reasonable statement.
+    A node for generating list features.
 
-    This will then promise to handle any requests
-    for these kinds of nodes.
+    Tracks the parent, as is standard. Presents
+    the attribute "list" which can be edited.
+
+    Construct will verify types in list are correct.
     """
     def __init__(self, node: list, parent: StackSupportNode, auxilary: str):
         """Creates the build list."""
