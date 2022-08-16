@@ -12,7 +12,7 @@ testretrieval2 = 6
 
 class test_utility_functions(unittest.TestCase):
     test_retrieval = 5
-    def test_rebuild_basic(self):
+    def test_rebuild_source(self):
         """ Tests that rebuild can recreate source"""
         source = inspect.getsource(test_utility_functions)
         tree = ast.parse(source)
@@ -46,9 +46,3 @@ class test_utility_functions(unittest.TestCase):
                 #TODO: Make a little more rigorous
                 pass
         warnings.warn("Warning, reverse iterator test not thorough enough")
-    def test_infer(self):
-        source = inspect.getsource(test_utility_functions)
-        tree = ast.parse(source)
-        captures = builder.capture(tree, lambda context, node : isinstance(node, ast.FunctionDef))
-        for context, node in captures:
-            builder.infer_feature(context, "test_retrieval")

@@ -36,6 +36,7 @@ class {ClassName}BuilderNode(StackSupportNode, typing={astType}):
     def node(self)->{astType}:
         return self._node
     def __init__(self, node: {astType}, parent: Optional[StackSupportNode]=None):
+        assert isinstance(node, {astType})
         super().__init__(node, parent)
         {feature_storage}
     def construct(self)->{astType}:
