@@ -246,27 +246,3 @@ class StringScriptContext():
         self.path = None
         self.name = None
 
-
-
-
-
-def redirect():
-    return 4
-source = """\
-def get_4():
-    return redirect()
-"""
-with StringScriptContext(source, globals(), locals()) as module:
-    get = torch.jit.script(module.get_4)
-    print(get())
-
-
-
-source = """
-import torch
-def add_five(input: torch.Tensor)->torch.Tensor:
-    return input + 5
-"""
-scripted_add_five = StringScriptContext(source).get("add_five")
-test_tensor = torch.tensor(0)
-print(scripted_add_five(test_tensor)) #Returns tensor(5)

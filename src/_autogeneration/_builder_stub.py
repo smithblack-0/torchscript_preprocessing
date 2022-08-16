@@ -21,12 +21,6 @@ and returning the results.
 
 
 
-#Order is important when editing here
-#
-#Note that it is the case that classes defined
-#later in this source code have lower priority
-#then those defined earlier.
-
 
 
 class StackSupportNode():
@@ -52,10 +46,15 @@ class StackSupportNode():
     def node(self) -> ast.AST:
         return self._node
     @property
-    def is_root(self):
+    def is_root(self)->bool:
         if self._node is None:
             return True
         return False
+    @property
+    def root(self)->"StackSupportNode":
+        if self.parent is None:
+            return self
+        return self.parent.root()
     @classmethod
     def get_subclass(cls, node: Type[ast.AST])->Type["StackSupportNode"]:
         """Gets the approriate subclass"""
@@ -74,8 +73,29 @@ class StackSupportNode():
         """Places the given value into the given fieldname. Lists are appended to. Raw slots are replaced"""
         if isinstance(getattr(self, fieldname), list):
             getattr(self, fieldname).append(value)
-        assert getattr(self, fieldname) is None, "Attribute of name %s already set" % fieldname
-        setattr(self, fieldname, value)
+        else:
+            assert getattr(self, fieldname) is None, "Attribute of name %s already set" % fieldname
+            setattr(self, fieldname, value)
+    def get_pos(self, target_child: ast.AST)->Tuple[str, Optional[int]]:
+        """Gets the position of the indicated ast child
+            node
+        """
+        #Get the correct field
+        final_field_name = None
+        child = None
+        for fieldname, child in self.get_child_iterator():
+            if target_child is child:
+                final_field_name = fieldname
+                break
+        if final_field_name is None:
+            raise KeyError("Child not on node")
+
+        #Return the correct type
+        if isinstance(getattr(self, final_field_name), list):
+            return final_field_name, getattr(self, fieldname).index(child)
+        else:
+            return final_field_name, None
+
     def get_child_iterator(self)->Generator[Tuple[str, Any], None, None]:
         """
         Iterates over every node directly attached
@@ -88,6 +108,37 @@ class StackSupportNode():
                     yield fieldname, subitem
             else:
                 yield fieldname, value
+
+    def get_ancestor_iterator(self):
+        """Starting with self, yields the entries seen going up the ancestor chain"""
+        parent = self.parent
+        yield self
+        while parent is not None:
+            yield parent
+            parent = parent.parent
+
+    def get_reverse_iterator(self)->Generator[Tuple["StackSupportNode", ast.AST], None, None]:
+        """A reverse iterator. Iterates backwards from self to parent"""
+        #Basically, this gets the forward sequence as a list,
+        #then just reverses and yields the result.
+        #
+        #Then it yields the result seen from moving up the stack.
+
+        if self.parent.node is not None:
+            nodes = []
+            for fieldname, node in self.parent.get_child_iterator():
+                if node is self.node:
+                    break
+                else:
+                    nodes.append(node)
+
+            nodes.reverse()
+            for node in nodes:
+                yield self.parent, node
+            for node in self.parent.get_reverse_iterator():
+                yield node
+
+
     def __init_subclass__(cls, typing: Type):
         """Registers the subclass associated with the given ast node"""
         if typing_std_lib.get_origin(typing) is Union:
@@ -101,33 +152,89 @@ class StackSupportNode():
     def __init__(self,
                  node: Optional[Union[ast.AST, List[ast.AST]]]=None,
                  parent: Optional["StackSupportNode"] = None,
-                 auxilary: Optional[Type] = None
                  ):
         self.parent = parent
         self._node = node
 
-class listSupportNode(StackSupportNode, typing=list):
-    """
-    A node for generating list features.
 
-    Tracks the parent, as is standard. Presents
-    the attribute "list" which can be edited.
-
-    Construct will verify types in list are correct.
+def rebuild(node: ast.AST,
+            transformer: Callable[[StackSupportNode, ast.AST], StackSupportNode],
+            context: Optional[StackSupportNode] = None,
+            ) -> ast.AST:
     """
-    def __init__(self, node: list, parent: StackSupportNode, auxilary: str):
-        """Creates the build list."""
-        super().__init__(node, parent)
-        self.type = auxilary
-        self.list: List["StackSupportNode"] = []
-    def construct(self) -> List["StackSupportNode"]:
-        output = []
-        for item in self.list:
-            if item is None:
-                continue
-            elif isinstance(item, self.type):
-                output.append(item)
+    A walker for working with an ast tree and autogenerating context.
+    This is designed to assist with creating a new node.
+
+    The transformer is called right before a particular stacknode
+    is turned back into an ast ndoe.
+
+    :param node: an ast tree to start at.
+    :param predicate: A predicate to match on. Will present a context, and the node
+    :param helper: An optional feature, showing the existing context
+    :return:  A tuple of the context, and the ast node.
+    """
+    if context is None:
+        context = StackSupportNode()
+    context = context.push(node)
+    stack = []
+    generator = context.get_child_iterator()
+    while True:
+        try:
+            fieldname, child = next(generator)
+            if isinstance(child, ast.AST):
+                stack.append((fieldname, child, generator, context))
+                context = context.push(child)
+                generator = context.get_child_iterator()
             else:
-                raise ValueError("Item %s is not of type %s" % (item, self.type))
-        return output
+                context.place(fieldname, child)
+        except StopIteration:
+            if len(stack) == 0:
+                break
+            #Working on the child node
+            node = context.pop() #Preliminary, indicating what has happened so far
+            context = transformer(context, node)
+            node_update = context.pop() #Final
+
+            #Parent node. Ascending stack
+            fieldname, child, generator, context = stack.pop()
+            context.place(fieldname, node_update)
+    return context.pop()
+
+
+def capture(node: ast.AST,
+         predicate: Callable[[StackSupportNode, ast.AST], bool],
+         context: Optional[StackSupportNode]=None,
+         stop: Optional[Callable[[StackSupportNode, ast.AST], bool]] = None
+         )->Generator[Tuple[StackSupportNode, ast.AST], None, None]:
+    """
+    A walker for working with an ast tree and autogenerating context.
+    This will walk all the children in the tree, returning nodes
+    as we go. It will only yield nodes matching the predicate.
+
+    :param node: an ast tree to start at.
+    :param predicate: A predicate to match on. Will present a context, and the node
+    :param helper: An optional feature, showing the existing context
+    :return:  A tuple of the context, and the ast node.
+    """
+    if context is None:
+        context = StackSupportNode()
+    context = context.push(node)
+    stack = []
+    generator = context.get_child_iterator()
+    while True:
+        try:
+            fieldname, child = next(generator)
+            if isinstance(child, ast.AST):
+                stack.append((child, generator, context))
+                context = context.push(child)
+                generator = context.get_child_iterator()
+        except StopIteration:
+            if len(stack) == 0:
+                break
+            child, generator, context = stack.pop()
+            if stop is not None and stop(context, child):
+                break
+            if predicate(context, child):
+                yield context, child
+
 
