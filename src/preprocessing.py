@@ -10,6 +10,25 @@ import inspect
 import StringExec
 from typing import List, Dict, Optional, Type, Tuple, Callable, Generator
 
+class PreprocessorRegister():
+    """
+    The primary preprocessor register
+    """
+    registry: List[Type["PreprocessorRegister"]] = []
+    @staticmethod
+    def is_match(context: builder.StackSupportNode, node: ast.AST)->bool:
+        return NotImplementedError()
+    @staticmethod
+    def refactor(context: builder.StackSupportNode, node: ast.AST)->bool:
+        return NotImplementedError()
+
+    @classmethod
+    def preprocess(cls, context, node):
+        for
+    def __init_subclass__(cls):
+        cls.registry.append(cls)
+    def __init__(self):
+        pass
 
 
 def preprocess(obj: object):
@@ -43,7 +62,9 @@ def preprocess(obj: object):
     definitions = list(builder.capture(module_tree, predicate))
     assert len(definitions) == 1, "Multiple definitions are not allowed"
     context, node = definitions[0]
-
+    #Open the preprocessor. Start preprocessing
+    processor = PreprocessorRegister()
+    return processor.preprocess()
 
 
 def test():

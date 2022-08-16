@@ -1,8 +1,6 @@
 import builder
 import ast
-from typing import List, Dict, Tuple, Type
-
-
+from typing import List, Dict, Tuple, Type, Callable
 
 
 class Reformatter():
@@ -18,7 +16,7 @@ class Reformatter():
     def is_match(context: builder.StackSupportNode, node: ast.AST)->bool:
         raise NotImplementedError("Must impliment is match")
     @staticmethod
-    def refactor(context: builder.StackSupportNode, node):
+    def refactor(context: builder.StackSupportNode, node, compiler):
         raise NotImplementedError("Must impliment refactor")
 
 class Inheritance(Reformatter):
@@ -32,6 +30,10 @@ class Inheritance(Reformatter):
             return True
         return False
     @staticmethod
-    def refactor(context: builder.StackSupportNode, node):
+    def refactor(context: builder.StackSupportNode, node, compiler: Callable):
         #Perform static analysis on the class. Then transfer
         #all inherited class features over.
+
+
+
+        for context, node in

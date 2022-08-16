@@ -49,8 +49,6 @@ class signature_node:
     type: Type
     list: bool = False
     optional: bool = False
-    manipulates_scope: bool = False
-    creates_scope: bool = False
 
 @dataclass
 class subchild:
