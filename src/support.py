@@ -6,38 +6,53 @@ from dataclasses import dataclass
 Literal = Union[int, str, float, complex, ]
 LiteralOrNode = Union[Literal, astroid.NodeNG]
 
+
+
+
+
 @dataclass
-class child_packet():
+class info_packet():
     """
     Contains information about a given child in a compact
-    and easily usable format. Also contains a utility
-    method capable of helping to build a new node
+    and easily usable format.
     """
     is_list: bool
     parent: "astroid_support_node"
     value: LiteralOrNode
     field: str
     index: Optional[int] = None
-    def commit(self, value: Optional[Literal]=None):
-        """Commit the given value on the appriate parent field
 
-         May be done multiple times. This appends to a list,
-         or sets to a field.
+    def derivative(self, value: Optional[Literal])->"info_packet":
+        """
+        Produce a new infopacket with the same
+        parent information and field information.
 
-         If value is none, then it copies the original
-         value over without change.
-         """
-        if value is None:
-            value = self.value
-        if self.index is not None:
-            self.parent.fields[self.field].append(value)
-        else:
-            self.parent.fields[self.field] = value
+        Usable for replacement purposes. Contains
+        information given in "value"
+
+        :param value: The information to set
+        :return: A new info_packet
+        """
+
+
+class astroid_support_node():
+    """
+    Represents an under construction
+    astroid tree, with associated
+    utility methods.
+    """
+    #Displays original node
+    #Displays node under construction.
+    #Contains utility methods such as iterators and
+    #push methods
+    def push(self, node: action_packet):
 
 class astroid_support_node():
     """
     A support node for building astroid
-    features.
+    features. Contains many utility functions.
+    Designed to be entirely pure, with
+    no side effects.
     """
     node: astroid.NodeNG
     fields: Dict[str, List[LiteralOrNode], Optional[LiteralOrNode]]
@@ -45,8 +60,8 @@ class astroid_support_node():
     def push(self, node: astroid.NodeNG)->"astroid_support_node":
         """Creates a new astroid support node to support the given astroid node"""
         pass
-    def pop(self)->astroid.NodeNG:
-        """Creates a new independent astroid node, based on children content"""
+    def pop(self)->"astroid_support_node":
+        """Builds the current self as a node. """
         pass
     def open(self, node: astroid.NodeNG):
         """
@@ -54,6 +69,6 @@ class astroid_support_node():
          Locks the existing context to prevent editing conflicts.
          Promises to infer on the context created in
          """
-    def iterate_children(self)->Generator[child_packet]:
+    def iterate_children(self)->Generator[info_packet]:
         """Iterates over all children, returning child packets for each feature"""
         pass
