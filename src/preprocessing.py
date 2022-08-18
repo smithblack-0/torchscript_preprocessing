@@ -2,8 +2,6 @@
 The preprocessing algorithm will attempt to resolve
 
 """
-
-import ast
 import copy
 from dataclasses import dataclass
 
@@ -14,8 +12,10 @@ import inspect
 import StringExec
 
 
+
 from typing import List, Dict, Optional, Type, Tuple, Callable, Generator, Any
 from enum import Enum
+from src import construction_database
 
 class FieldTypes(Enum):
     """The kinds of fields you might see"""
@@ -30,126 +30,211 @@ class FieldTypes(Enum):
     FalseBool = False
     NoneLit = None
 
-@dataclass
-class info_packet():
-    """
-    Two responsiblities.
 
-    Store any relevant information about
 
-    A packet of information about an astroid
-    child and it's originating node plus
-    field
+
+def place_edit_packet_on_node(node: astroid.NodeNG, packet: "edit_packet"):
+    """Places an edit packet onto the node. Unusual side effect, so isolated in its own function"""
+    node._packet = packet
+
+def get_edit_packet_from_node(node: astroid.NodeNG)->"edit_packet":
+    """Gets from a node the associated edit packet"""
+    assert hasattr(node, "_packet")
+    return node._packet
+
+
+class AbstractFieldEditor():
     """
-    fieldname: str
-    parent: astroid.NodeNG
-    node: Any
-    is_list: bool
+    Allows for modification of
+    a particular field
+    """
+    field_type: Any
+    field_value: Any
+    def __init__(self,
+                 parent_node: astroid.NodeNG,
+                 fieldname: str):
+        self.parent = parent_node
+        self.fieldname = fieldname
+
+class DirectFieldEditor(AbstractFieldEditor):
+    """Edits fields which are placed directly on a node"""
+    @property
+    def field_value(self):
+        return getattr(self.parent, self.fieldname)
+    def __init__(self, parent, fieldname):
+        super().__init__(parent, fieldname)
+
+class ListFieldEditor(AbstractFieldEditor):
+    """
+    Edits things found in a list. Supports insertion before,
+    after, replacement, and deletion
+    """
+    @property
+    def _lst(self):
+        return getattr(self.parent, self.fieldname)
+
+    @property
+    def field_index(self):
+        return self._lst.index(self.field_value)
+    @property
+    def field_value(self):
+        return self._field_value
+    @field_value.setter
+    def field_value(self, value: Any):
+        lst = self._lst
+        lst[self.field_index] = value
+        self._field_value = value
+
+    def insert_before(self, value: Any):
+
+
+    def __init__(self, parent, fieldname, field_value):
+        super().__init__(parent, fieldname)
+        self._field_value = field_value
+
+class FieldEditor():
+    """
+    This class allows for the editing of fields.
+
+    It contains field information, and methods
+    which can be utilized to set the field in
+    a new
+    """
+
+class Field():
+    """
+    A representation of a field
+
+    Things can be put here
+    """
+
+class FieldList():
+    """
+    A representation of a
+    """
+class UnboundFieldListNode():
+    """
+    A node representing an entry in a
+    list. It has not yet been bound
+    to a position.
+    """
+    def __init__(self,
+                 parent_node: astroid.NodeNG,
+                 fieldname: str,
+                 fieldtype: Type[Any],
+                 fieldvalue: Any,
+                 ):
+        self.parent = parent_node
+        self.fieldname = fieldname
+        self.fieldtype = fieldtype
+        self.fieldvalue = fieldvalue
     def derivative(self, value: Any):
-        """Creates a copy of the packet, with node changed to value"""
-        return info_packet(self.fieldname,
-                           self.parent,
-                           value,
-                           self.is_list)
+        pass
 
-
-class ActionLLNode():
+class FieldListNode():
     """
-    A linked list node. Represents a
-    single node in a chain of actions
-    which will result in the construction
-    of a tree.
+    A node representing an entry
+    in a list. It has as of this point
+    been bound to a position.
     """
-    def create(self, node: astroid.NodeNG)->"ActionLLNode":
-        """
-        Places a create instruction into the history chain.
-        Action will create a blank node of type "node"
-        Action will yield blank node to next part of chain
-        """
+    @property
+    def pos(self):
+        pass
+    def __init__(self,
+                 parent_node: astroid.NodeNG,
+                 fieldname: str,
+                 fieldtype: Type[Any],
+                 fieldvalue: Any,
+                 ):
+        self.parent = parent_node
+        self.fieldname = fieldname
+        self.fieldtype = fieldtype
+        self.fieldvalue = fieldvalue
+    def derivative(self):
 
-    def build(self)->"ActionLLNode":
+
+class Field():
+
+
+class Field():
+    """
+    This class has two important responsibility
+
+    Explore the fields attached to a particular node.
+    """
+    def __init__(self,
+                 parent_node: astroid.NodeNG,
+                 fieldname: str,
+                 fieldtype: Type[Any],
+                 fieldvalue: Any,
+                 ):
+        self.parent = parent_node
+        self.fieldname = fieldname
+        self.fieldtype = fieldtype
+        self.fieldvalue = fieldvalue
+    def derivative(self):
         """
+        Creates a copy of this with a new field value, which
+        will land in the same place.
+        """
+    def commit(self):
+        """
+        Commit this feature into the indicated field.
+        For lists, this will commit it to the end of the list
 
         :return:
         """
+    def append(self):
+        """
+        Append everything to list
+        :return:
+        """
 
-    def emplace(self, fieldname: str, value: Any)->"ActionLLNode":
 
-    def execute(self):
-        return self.action(self.parent.execute())
-    def __init__(self,
-                 action: Callable =
-                 parent: Optional["ActionLLNode"],
-                 child: Optional["ActionLLNode"],
-                 ):
-        self.parent = parent
-        self.child = child
-        self.action = action
-
-class Explorer():
+class Editor():
     """
     This class has a single important responsibility
 
     Explore the nodes which are out there. Return
     the needed information as an info packet
     """
-    def iterate_children(self) -> Generator[info_packet, None, None]:
+    def iterate_children(self) -> Generator[field_packet, None, None]:
         """
         Iterates over the children of an astroid node.
         Yields information for each child as a childinfo packet.
         """
-        node = self.node
-        for child in node.get_children():
-            field = node.locate_child(child)
-            attr = getattr(node, field)
-            if isinstance(attr, FieldTypes.List):
-                is_list = True
+        original = self.original_node
+        for child in self.node.get_children():
+            field_name = self.node.locate_child(child)
+            attr = getattr(self.node, field_name)
+            if isinstance(attr, list):
+                pos = attr.index(child)
             else:
-                is_list = False
-            yield info_packet(field, node, child, is_list)
-    def define_self(self)->info_packet:
-        """Defines oneself as an info packet"""
-        if self.parent is not None
-    def __init__(self, node: astroid.NodeNG):
-        self.node = node
+                pos = None
 
 
-
-
-class NodeEmitter():
-    """
-    This class has two responsibilities
-
-    Store finished nodes, and build
-    the results when so called.
-    """
-    def emit_astroid(self)->astroid.NodeNG:
-        """Emit the associated astroid node"""
-        return self.construction
-    def emplace(self, packet: info_packet):
+            yield field_packet(self.node,
+                              field_name,
+                              type(attr),
+                              child,
+                              pos)
+    def edit(self, item: field_packet):
         """
-        Place the value onto the node of fieldname
-        Sets fieldname if not list
-        Appends if fieldname is list.
+        Opens a new explorer to examine the details indicated
+        on the given field position.
         """
-        assert self.spec.parent is packet.parent
-        fieldname = packet.fieldname
-        value = packet.node
-        if isinstance(value, astroid.NodeNG):
-            #Change the parent if it is a node.
-            value = copy.deepcopy(value)
-            value.parent = self.construction
-        if packet.is_list:
-            ls = getattr(self.construction, fieldname)
-            ls.append(value)
+        assert issubclass(field_packet.field_type, astroid.NodeNG)
+        return Editor(self.new_node, field_packet)
+    def new(self):
+
+
+    def __init__(self, node: Optional[astroid.NodeNG]= None, _packet: Optional[field_packet] = None):
+
+        if node is not None:
+            self.original_node = node
         else:
-            setattr(self.construction, fieldname, value)
-    def __init__(self, spec: info_packet):
-        assert isinstance(spec.node, astroid.NodeNG)
-        self.spec = spec
-        self.construction = spec.node.__class__()
-
-
+            self.original_node = _packet.field_value
+        self.new_node = self.original_node.__class__()
 
 
 
@@ -161,7 +246,7 @@ def make_node_in_context(obj: object)->astroid.NodeNG:
     context
     """
 
-def astroid_transform(packet: info_packet)->Generator[astroid.NodeNG, None, None]:
+def astroid_transform(packet)->Generator[astroid.NodeNG, None, None]:
     """
     Transforms something which is an astroid node.
     Yields a generator of astroid nodes as a result
@@ -194,8 +279,10 @@ def iterate_children(node: astroid.NodeNG)->Generator[childinfo_packet, None, No
 
 def preprocess(obj: object):
     start_node = make_node_in_context(obj)
-    explorer = NodeExplorer(start_node)
+    explorer = Explorer(start_node)
     emitter = NodeEmitter(start_node)
+    while True:
+
     construction = start_node.__class__()
     construction.parent = start_node.parent
 
@@ -205,16 +292,16 @@ def preprocess(obj: object):
 
 def preprocess(node: astroid.NodeNG):
     node = make_node_in_context(node)
-    construction = node.__class__()
+    builder = construction_database.BuildNode()
     stack = []
     generator = iterate_children(node)
     while True:
         try:
-            packet: childinfo_packet = next(generator)
+            packet: info_packet = next(generator)
             subnode = packet.node
             if isinstance(subnode, astroid.NodeNG):
-                stack.append((node, construction, generator))
-                construction = subnode.__class__()
+                stack.append((node, generator))
+
                 generator = subnode.get_children()
             else:
                 construction = emplace(construction, packet)
@@ -225,6 +312,8 @@ def preprocess(node: astroid.NodeNG):
              node, generator = stack.pop()
              field = node.locate_child(node)
              result_generator = astroid_transform(child)
+
+
              for result in result_generator:
                 if isinstance(getattr(node, field), list):
                     getattr(node, field).append(result)

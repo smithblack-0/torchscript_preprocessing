@@ -3,9 +3,11 @@ import inspect
 from src.StringExec import StringScriptContext
 
 
-def scope():
-    item = 4
-    item
+def gentest():
+    for i in range(10):
+        y = yield 3
+        yield i
 
-node = astroid.parse(inspect.getsource(scope))
-print(node)
+gen = gentest()
+print(next(gen))
+print(next(gen))

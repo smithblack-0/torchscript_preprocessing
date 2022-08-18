@@ -10,8 +10,12 @@ Objectives:
 
 """
 import unittest
+from typing import Generator, List
 
 import astroid
+import ast
+import inspect
+
 
 from src import construction_database
 
@@ -92,7 +96,27 @@ class testActions(unittest.TestCase):
     def test_creation(self):
         """tests if you can create these at all"""
 
-        start = construction_database.ActionLinkNode()
-
+        start = construction_database.BuildNode()
         start.create("test", astroid.NodeNG)
         start.emplace("test", "test")
+    def test_basic_compilation(self):
+        def test_target():
+            print("Hello world")
+
+        source = inspect.getsource(test_target)
+        tree = astroid.parse(source)
+
+        NodeBuilder = construction_database.BuildNode()
+        stack: List[Tuple[Generator[astroid.NodeNG], astroid.NodeNG]] = []
+        generator = tree.get_children()
+        while True:
+            try:
+                child = next(generator)
+                stack.append((generator, child))
+                generator = child.get_children()
+            except StopIteration:
+
+
+
+
+
