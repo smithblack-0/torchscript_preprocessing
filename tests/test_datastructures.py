@@ -92,8 +92,8 @@ class unit_CodeBlock(unittest.TestCase):
         blocks = [datastructures.CodeBlock(item,setup(i))
                   for i, item in enumerate(source)]
         a, b, c = blocks
-        a.next = b
-        b.next = c
+        a.child = b
+        b.child = c
 
 
         #Test read

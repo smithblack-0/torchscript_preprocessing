@@ -51,7 +51,42 @@ class info_packet():
                            self.parent,
                            value,
                            self.is_list)
-class NodeExplorer():
+
+
+class ActionLLNode():
+    """
+    A linked list node. Represents a
+    single node in a chain of actions
+    which will result in the construction
+    of a tree.
+    """
+    def create(self, node: astroid.NodeNG)->"ActionLLNode":
+        """
+        Places a create instruction into the history chain.
+        Action will create a blank node of type "node"
+        Action will yield blank node to next part of chain
+        """
+
+    def build(self)->"ActionLLNode":
+        """
+
+        :return:
+        """
+
+    def emplace(self, fieldname: str, value: Any)->"ActionLLNode":
+
+    def execute(self):
+        return self.action(self.parent.execute())
+    def __init__(self,
+                 action: Callable =
+                 parent: Optional["ActionLLNode"],
+                 child: Optional["ActionLLNode"],
+                 ):
+        self.parent = parent
+        self.child = child
+        self.action = action
+
+class Explorer():
     """
     This class has a single important responsibility
 
@@ -77,6 +112,7 @@ class NodeExplorer():
         if self.parent is not None
     def __init__(self, node: astroid.NodeNG):
         self.node = node
+
 
 
 
