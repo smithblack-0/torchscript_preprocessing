@@ -1,7 +1,29 @@
 """
-Contains utilities for sanely editing an astroid node.
 
+This module contains utilities for sanely examining
+and editing the backend astroid node database representing
+the code.
 
+One may, by a variety of methods, instance
+an editor to begin working on an astroid tree.
+At this point, one may iterate through the node's
+children, each of which will also result in an editor,
+and make changes to them.
+
+Existing astroid methods, such as inferral, also exist.
+These methods when accessed will, again, yield node
+editors.
+
+For ease of usage, it is the case that editors can accept astroid nodes to
+replace, along with in some cases literals.
+
+* NodeEditor class. Initialized with entire tree. Iterates children. Returns editors
+* FieldEditer class. Initialized with an astroid field and parent.
+* ListEditor class. Initialialized with a field list. Knows how to make some changes
+* ListItemEditor class. Initialized from a ListEditor. Knows how to insert before and after
+
+* AstroidItem. A representation of an astroid node. Knows how to infer. Knows how to make a node editor.
+* LiteralItem
 """
 import copy
 
@@ -10,21 +32,117 @@ from typing import List, Any, Dict, Tuple, Type, Union, Optional, Generator
 
 from src.construction_database import DoubleLinkedList
 
+### Define interface
 
 class AbstractEditor():
     """
     Abstract class for editing
     astroid field.
     """
+
+
+class AbstractFieldEditor(AbstractEditor):
+    """
+    Abstract class. Represents a field. Knows
+    how to edit it.
+    """
+    def replace(self, value: Any):
+        raise NotImplementedError()
+    def __init__(self):
+        pass
+
+
+class AbstractTreeNode(AbstractEditor):
+    """
+    Abstract. Represents features available when
+    dealing with tree nodes.
+    """
+    def iterate_fields(self)->AbstractFieldEditor:
+        raise NotImplementedError()
+    def iterate_children(self)->AbstractEditor:
+        raise NotImplementedError()
+    def infer(self)->"AbstractTreeNode":
+        raise NotImplementedError()
+    def __init__(self):
+        pass
+
+class AbstractListItem():
+    """
+    Represents an item in some sort of list.
+
+    Contains methods which are usable for
+    manipulating this this item - replacing,
+    placing before, placing after.
+
+    """
     @property
-    def value(self):
+    def index(self)->int:
+        """Gets the index of this item in the list"""
+        return self.editor.index(self)
+    def insert_before(self, value: any):
+        """Inserts before an item in the list"""
+        self.editor.insert(self.index, value)
+    def insert_after(self, value):
+        """Inserts after an itme in the list"""
+        self.editor.insert(self.index+1, value)
+    def next(self)->"ListItem":
+        if len(self.editor) == (self.index - 1):
+            raise StopIteration("At end of list")
+        return self.editor[self.index+1]
+    def previous(self)->"ListItem":
+        if self.index == 0:
+            raise StopIteration("Cannot get previous: already at start of list")
+        return self.editor[self.index -1]
+    def __init__(self,
+                 item_value: Any,
+                 item_id: Any,
+                 list_editor: "AbstractListEditor"):
+        self.value = item_value
+        self.editor = list_editor
+        self.id = item_id
+
+
+
+class AbstractListEditor():
+    def index(self, item: object)->int:
+        """
+        Index an item.
+        Should be Listitem independent, and
+        work regardless of being handed an AbstractListItem or
+        a raw item
+        """
+        raise NotImplementedError()
+    def append(self, value):
+        """
+        Append an itme ot a list. Should work
+        with listitems and raw types.
+        """
+        raise NotImplementedError()
+    def insert(self, index: int, value: AbstractListItem):
+        """
+        Insert an item into a list
+
+        Should work with list items and raw types.
+        """
+        raise NotImplementedError()
+    def __str__(self):
+        raise NotImplementedError()
+    def __len__(self):
+        raise NotImplementedError()
+    def __getitem__(self,
+                    key: Union[slice, int])->Union["AbstractListEditor", AbstractListItem]:
+        raise NotImplementedError()
+    def __setitem__(self,
+                    key: Union[slice, int, AbstractListItem],
+                    value: AbstractListItem):
         raise NotImplementedError()
 
-    def __init__(self,
-                 parent_node: astroid.NodeNG,
-                 fieldname: str):
-        self.parent = parent_node
-        self.fieldname = fieldname
+
+class AbstractListItem():
+    """
+    Abstract feature representing the interface
+    """
+
 
 class ListItemEditor(AbstractEditor):
     """
@@ -148,3 +266,25 @@ class FieldEditor(AbstractEditor):
                  ):
         super().__init__(parent, fieldname, value)
 
+
+class NodeEditor():
+    """
+
+
+    This is a feature capable of helping the user
+    walk through the astroid tree, and edit particular
+    items if desired.
+
+
+
+    --- methods ---
+
+
+
+
+    Produces an editor associated with a particular node.
+
+    Allows walking through child nodes in order to perform
+    edits.
+    """
+    def __init__(self, tree: astroid.Module):
