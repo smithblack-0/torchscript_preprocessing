@@ -1,9 +1,6 @@
-import astroid
-import inspect
-from src.StringExec import StringScriptContext
-
-items = [1, 2, 3]
-for item in items:
-    items.pop(0)
-
-    print(item)
+import difflib
+line1 = "abcd"
+line2 = "decd"
+Differ = difflib.Differ()
+diff = list(Differ.compare(line1, line2))
+print(diff)
