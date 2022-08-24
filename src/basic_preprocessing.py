@@ -23,7 +23,7 @@ The environmental wrapper is declared on site, whereas the instance and class fe
 
 Torchscript will compile this.
 """
-from typing import List, Tuple, Set, Union, Any
+from typing import List, Tuple, Set, Union, Any, Generator
 
 import torch
 import re
@@ -38,6 +38,7 @@ from typing import Dict
 wrapper_magic_name = "__environmental_wrapper"
 class_feature_magic_name = "__class_level_features"
 instance_feature_magic_name = "__instance_level_features"
+
 
 class Template():
     """
@@ -69,16 +70,24 @@ class Template():
 
     template: str = "" # The primary template, and what will be returned
     template_name: str = "primary"
-    subtemplates: Dict[str, str] = [] #Any number of additional templates with associated aliases. May also reference each other
-    dependency_pattern = re.compile(r"{(.*?)}")
-
-
+    subtemplates: Dict[str, str] = {} #Any number of additional templates with associated aliases. May also reference each other
     @dataclasses.dataclass
     class CompileStub:
+        """
+        A stub generated during initialization.
+        Indicates what needs to be filled in for the template to work.
+        """
         template: str
-        alias_dependencies: List[str]
-        direct_dependencies: List[str]
-        list_dependencies: List[Tuple[str, str]]
+        alias_dependencies: List[str] = dataclasses.field(default_factory = lambda : [])
+        direct_dependencies: List[str] = dataclasses.field(default_factory = lambda : [])
+        list_dependencies: List[Tuple[str, str]] = dataclasses.field(default_factory= lambda : [])
+    @dataclasses.dataclass
+    class dependencyStub:
+        name: str
+        join_str: str = ""
+        is_alias: bool = False
+        is_direct: bool = False
+        is_list: bool = False
     @staticmethod
     def clean_template(item: str)->str:
         return textwrap.dedent(item)
@@ -111,17 +120,47 @@ class Template():
                 stringslice = template[start + 1:position - 1]
                 outputs.append(stringslice)
         return outputs
+    def is_predefined_attribute(self, attribute_name: str):
+        """
+        Checks if the given attribute is defined at the class level,
+        which indicates it is the same in all instances.
+        """
+        instance_class = self.__class__
+        return hasattr(instance_class, attribute_name)
+    def register_dependency(self, dependency: str)->Generator["Template.dependencyStub", None, None]:
+        """Register template exists on the class. Indicates dependency type."""
+        if dependency in self.subtemplates:
+            #This is an alias to another subtemplate.
+            yield self.dependencyStub(name=dependency, is_alias=True)
+        elif ',' in dependency:
+            #This is a list dependency.
+            subtemplate, join_string = dependency.split(",")
+            subdependencies = self.get_format_names(subtemplate)
+            for subdependency in subdependencies:
+                if not self.is_predefined_attribute(subdependency):
+                    assert hasattr(self, dependency) is False
+                    setattr(self, dependency, [])
+                yield self.dependencyStub(name=subdependency, join_str=join_string, is_list=True)
+        else:
+            #This is a direct set dependency
+            if not self.is_predefined_attribute(dependency):
+                assert not hasattr(self, dependency)
+                setattr(self, dependency, None)
+            yield self.dependencyStub(name=dependency, is_direct=True)
+
     def __init__(self):
         """
         :param string: A string with format blocks, indicated by {format}
         """
-
         #Figure out the dependencies required. Dependencies will consist of
         # aliases, direct replacement dependency, or list join dependencies.
+        # They are either atttributes the user must fill in, or a subtemplate
+        # that must compile first.
         #
         # For each template, we turn this into a compile stub, create instance
         # attribute for user interaction, and store away the compile stub for
-        # later usage.
+        # later usage. The class promises that if the user attributes are configured
+        # correctly, the alias will compile correctly.
 
         templates = self.subtemplates.copy()
         if self.template_name in templates:
@@ -133,24 +172,16 @@ class Template():
             direct_dependencies = []
             list_dependencies = []
             subtemplate_dependencies = []
-            template_specific_dependencies = self.get_format_names(template)
+            template_specific_dependencies = self.get_dependencies(template)
             for specific_dependency in template_specific_dependencies:
-                if specific_dependency in template_names:
-                    #This is an alias. Do nothing
-                    subtemplate_dependencies.append(name)
-                elif "," in specific_dependency:
-                    #This is a list subtemplate. Go set it up
-                    subtemplate, join_string = specific_dependency.split(",")
-                    subdependencies = self.get_format_names(subtemplate)
-                    for subdependency in subdependencies:
-                        assert not hasattr(self, subdependency)
-                        setattr(self, subdependency, [])
-                    list_dependencies.append((join_string, subdependencies))
-                else:
-                    #Standard attribute. Setup
-                    assert not hasattr(self, specific_dependency)
-                    setattr(self, specific_dependency, None)
-                    direct_dependencies.append(specific_dependency)
+                registration_stub_gen = self.register_dependency(specific_dependency)
+                for stub in registration_stub_gen:
+                    if stub.is_direct:
+                        direct_dependencies.append(stub.name)
+                    elif stub.is_alias:
+                        subtemplate_dependencies.append(stub.name)
+                    elif stub.is_list:
+                        list_dependencies.append((stub.name, stub.join_str))
             stub = self.CompileStub(template,subtemplate_dependencies, direct_dependencies, list_dependencies)
             dependencies[name] = stub
         self.compile_info = dependencies
@@ -179,8 +210,8 @@ class Template():
         # A quick and dirty template compiler capable of ensuring that the template is filled
         # properly. Goes through list of templates and required_dependencies, and tracks down, then executes,
         # anything which is compilable but has not been compiled. aliases are filled in as we go.
-        # Catches and raises if it gets stuck. Not particularly efficient, but we are not going to
-        # spent much time here.
+        # Catches and raises if it gets stuck. Not particularly efficient, but does it really need to be
+        # so?
 
         compiled_subtemplates = {}
         compilation_targets = self.compile_info.copy()
@@ -191,7 +222,7 @@ class Template():
                     progressing = True
                     stub = compilation_targets.pop(name)
                     dependencies = self.get_dependencies(stub, compiled_subtemplates)
-                    if name is self.template_name:
+                    if name == self.template_name:
                         return stub.template.format(**dependencies)
                     else:
                         compiled_subtemplates[name] = stub.template.format(**dependencies)
@@ -199,19 +230,8 @@ class Template():
             if not progressing:
                 raise RuntimeError("Recursive or invalid template")
 
-
-
-class class_features_template():
-    """
-    A template for creating a class representing class features
-    """
-    class_feature_magic_name = "__class_features"
-    subtemplate
-
-    template = """\
-    class {class_feature_magic_name}_{class_name}:
-        def __init__(self, {parent_class_feature}):
-            {(parent_class_feature_assignments), (     \n)} 
-    
-    
+class dev_template(Template):
+    template = """
+    {{item1} = {item2},     \n}
+    {replace}
     """
