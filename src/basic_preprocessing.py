@@ -166,7 +166,6 @@ class Template():
         if self.template_name in templates:
             raise RuntimeError("Cannot have a subtemplated names %s while also having a primary template named %s" % self.template_name)
         templates[self.template_name] = self.template
-        template_names = templates.keys()
         dependencies: Dict[str, Template.CompileStub] = {}
         for name, template in templates.items():
             direct_dependencies = []
