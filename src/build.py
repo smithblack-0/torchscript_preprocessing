@@ -279,10 +279,6 @@ class CreateTreenodeAction(BuildNode, registry_name = ActionOptionsEnum.CreateTr
     tree_descent = True
     def action(self, node: Optional[astroid.NodeNG], stack: List[context]) ->astroid.NodeNG:
         """Creates a node, attached to the given parent"""
-        if isinstance(getattr(node, self.field_name), list):
-            is_list = True
-        else:
-            is_list = False
         node._created = self #Allows retrieval by editing engine.
         if len(stack) > 0:
             depth = stack[-1].depth + 1
@@ -382,7 +378,6 @@ class FieldEditor():
         """Places node back at the same position it was found in"""
 
 
-class NodeIterator():
 
 
 class NodeBuilder():
@@ -461,3 +456,20 @@ def rebuild(obj: object, transforms: List[Callable[[BuildNode, astroid.NodeNG], 
             Builder.commit()
             working_node_subchildren_generator, current_working_node = Stack.pop()
     raise Exception()
+
+
+class Classes():
+    """
+    The classes construction manager. Utilized to
+    help construct and otherwise manage node classes
+    """
+    def __init__(self, tree: astroid.N):
+
+
+
+class Builder():
+    """
+    A top level builder utility. Stores the build history in a convenient manner,
+    and provides classes to help the build process along.
+    """
+

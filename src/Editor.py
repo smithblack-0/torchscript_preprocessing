@@ -30,7 +30,7 @@ import copy
 import astroid
 from typing import List, Any, Dict, Tuple, Type, Union, Optional, Generator
 
-from src.construction_database import DoubleLinkedList
+from src.build import DoubleLinkedList
 
 ### Define interface
 
@@ -267,24 +267,4 @@ class FieldEditor(AbstractEditor):
         super().__init__(parent, fieldname, value)
 
 
-class NodeEditor():
-    """
 
-
-    This is a feature capable of helping the user
-    walk through the astroid tree, and edit particular
-    items if desired.
-
-
-
-    --- methods ---
-
-
-
-
-    Produces an editor associated with a particular node.
-
-    Allows walking through child nodes in order to perform
-    edits.
-    """
-    def __init__(self, tree: astroid.Module):

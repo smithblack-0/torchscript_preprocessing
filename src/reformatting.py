@@ -1,39 +1,21 @@
 import builder
-import ast
+import astroid
 from typing import List, Dict, Tuple, Type, Callable
+from dataclasses import dataclass
 
 
-class Reformatter():
+class CompileInformation():
     """
-    A class with methods for reformatting.
-
-    It may be assumed that by the time this
-    class is coming into play, a depth
-    first compilation has occurred and
-    any problem with child nodes is already resolved.
+    A restricted purpose heap in which information
+    may be placed, to be trigger in
     """
-    @staticmethod
-    def is_match(context: builder.StackSupportNode, node: ast.AST)->bool:
-        raise NotImplementedError("Must impliment is match")
-    @staticmethod
-    def refactor(context: builder.StackSupportNode, node, compiler):
-        raise NotImplementedError("Must impliment refactor")
 
-class Inheritance(Reformatter):
-    """
-    Detects and reformats inheriting nodes
-    for functional independence.
-    """
-    @staticmethod
-    def is_match(context: builder.StackSupportNode, node: ast.AST) ->bool:
-        if isinstance(node, ast.ClassDef) and len(node.bases) > 0:
-            return True
-        return False
-    @staticmethod
-    def refactor(context: builder.StackSupportNode, node, compiler: Callable):
-        #Perform static analysis on the class. Then transfer
-        #all inherited class features over.
+def has_class_bindings()
+
+def get_class_bindings()
 
 
+def compile_class(node: astroid.NodeNG):
 
-        for context, node in
+
+class CompileClass:

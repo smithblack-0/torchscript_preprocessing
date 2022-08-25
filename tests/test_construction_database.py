@@ -17,7 +17,7 @@ import ast
 import inspect
 
 
-from src import construction_database
+from src import build
 
 class test_linked_lists(unittest.TestCase):
     """
@@ -26,10 +26,10 @@ class test_linked_lists(unittest.TestCase):
     """
     def test_firstlast(self):
         """Test the first and last properties are effective"""
-        a = construction_database.DoubleLinkedList()
-        b = construction_database.DoubleLinkedList()
-        c = construction_database.DoubleLinkedList()
-        d = construction_database.DoubleLinkedList()
+        a = build.DoubleLinkedList()
+        b = build.DoubleLinkedList()
+        c = build.DoubleLinkedList()
+        d = build.DoubleLinkedList()
 
         a.child = b
         b.child = c
@@ -46,14 +46,14 @@ class test_linked_lists(unittest.TestCase):
 
     def test_insertion(self):
         """ test insertion is working without issue"""
-        a = construction_database.DoubleLinkedList()
-        b = construction_database.DoubleLinkedList()
-        c = construction_database.DoubleLinkedList()
-        d = construction_database.DoubleLinkedList()
+        a = build.DoubleLinkedList()
+        b = build.DoubleLinkedList()
+        c = build.DoubleLinkedList()
+        d = build.DoubleLinkedList()
 
-        x = construction_database.DoubleLinkedList()
-        y = construction_database.DoubleLinkedList()
-        z = construction_database.DoubleLinkedList()
+        x = build.DoubleLinkedList()
+        y = build.DoubleLinkedList()
+        z = build.DoubleLinkedList()
 
         a.child = b
         b.child = c
@@ -68,9 +68,9 @@ class test_linked_lists(unittest.TestCase):
 
     def test_linkage(self):
         """Test that forward and backward linkages are behaving sanely. """
-        a = construction_database.DoubleLinkedList()
-        b = construction_database.DoubleLinkedList()
-        c = construction_database.DoubleLinkedList()
+        a = build.DoubleLinkedList()
+        b = build.DoubleLinkedList()
+        c = build.DoubleLinkedList()
 
         #Test basic attachment
         a.child = b
@@ -90,13 +90,13 @@ class test_linked_lists(unittest.TestCase):
         self.assertTrue(a.child is None)
 
     def test_creation(self):
-        construction_database.DoubleLinkedList()
+        build.DoubleLinkedList()
 
 class testActions(unittest.TestCase):
     def test_creation(self):
         """tests if you can create these at all"""
 
-        start = construction_database.BuildNode()
+        start = build.BuildNode()
         start.create("test", astroid.NodeNG)
         start.emplace("test", "test")
     def test_basic_compilation(self):
@@ -106,7 +106,7 @@ class testActions(unittest.TestCase):
         source = inspect.getsource(test_target)
         tree = astroid.parse(source)
 
-        NodeBuilder = construction_database.BuildNode()
+        NodeBuilder = build.BuildNode()
         stack: List[Tuple[Generator[astroid.NodeNG], astroid.NodeNG]] = []
         generator = tree.get_children()
         while True:

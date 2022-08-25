@@ -15,7 +15,7 @@ import StringExec
 
 from typing import List, Dict, Optional, Type, Tuple, Callable, Generator, Any
 from enum import Enum
-from src import construction_database
+from src import build
 
 class FieldTypes(Enum):
     """The kinds of fields you might see"""
@@ -292,7 +292,7 @@ def preprocess(obj: object):
 
 def preprocess(node: astroid.NodeNG):
     node = make_node_in_context(node)
-    builder = construction_database.BuildNode()
+    builder = build.BuildNode()
     stack = []
     generator = iterate_children(node)
     while True:

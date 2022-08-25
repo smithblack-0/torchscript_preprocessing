@@ -40,6 +40,12 @@ class_feature_magic_name = "__class_level_features"
 instance_feature_magic_name = "__instance_level_features"
 
 
+"""
+
+{       , self.{name} = {value} \n}
+"""
+
+
 class Template():
     """
     Runtime class designed to generate a template
@@ -127,22 +133,25 @@ class Template():
         """
         instance_class = self.__class__
         return hasattr(instance_class, attribute_name)
-    def register_dependency(self, dependency: str)->Generator["Template.dependencyStub", None, None]:
+    def create_dependency_attribute(self, dependency: str)->Generator["Template.dependencyStub", None, None]:
         """Register template exists on the class. Indicates dependency type."""
         if dependency in self.subtemplates:
-            #This is an alias to another subtemplate.
+            #This is an alias to another subtemplate. Create no attribute
             yield self.dependencyStub(name=dependency, is_alias=True)
         elif ',' in dependency:
-            #This is a list dependency.
+            #This is a list dependency. Create a list for each subdependency.
             subtemplate, join_string = dependency.split(",")
             subdependencies = self.get_format_names(subtemplate)
             for subdependency in subdependencies:
                 if not self.is_predefined_attribute(subdependency):
-                    assert hasattr(self, dependency) is False
+                    if hasattr(self, dependency):
+                        raise AttributeError("Attempt to create dependency of name %s twice")
+
+                    assert not hasattr(self, dependency)
                     setattr(self, dependency, [])
                 yield self.dependencyStub(name=subdependency, join_str=join_string, is_list=True)
         else:
-            #This is a direct set dependency
+            #This is a direct set dependency. Create a b
             if not self.is_predefined_attribute(dependency):
                 assert not hasattr(self, dependency)
                 setattr(self, dependency, None)
@@ -171,9 +180,9 @@ class Template():
             direct_dependencies = []
             list_dependencies = []
             subtemplate_dependencies = []
-            template_specific_dependencies = self.get_dependencies(template)
+            template_specific_dependencies = self.get_format_names(template)
             for specific_dependency in template_specific_dependencies:
-                registration_stub_gen = self.register_dependency(specific_dependency)
+                registration_stub_gen = self.create_dependency_attribute(specific_dependency)
                 for stub in registration_stub_gen:
                     if stub.is_direct:
                         direct_dependencies.append(stub.name)
@@ -234,3 +243,7 @@ class dev_template(Template):
     {{item1} = {item2},     \n}
     {replace}
     """
+
+
+instance = dev_template()
+instance()
