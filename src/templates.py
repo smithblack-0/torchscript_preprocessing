@@ -157,8 +157,10 @@ class Template(FormatUtils):
     primary_template_name = "primary_template"
     subtemplate_suffix_keyword = "subtemplate"
 
+
+
     @classmethod
-    def get_user_subtemplate(cls, name: str)->str:
+    def get_subtemplate(cls, name: str)->str:
         if not hasattr(cls, name):
             raise AttributeError("No subtemlate attribute of name %s detected" % name)
         item = getattr(cls, name)
@@ -178,10 +180,23 @@ class Template(FormatUtils):
 
 
     def get_keyword_or_compile_subtemplate(self, name: str, kwargs: dict):
-        """Compiles a subtemplate if it can find one, or alternatively gets a kwarg from the input stream"""
+        """
+        If a subtemplate with the name is found, go compile it.
+        Else, fetch the requirement from the keywords
+        """
+
 
     @classmethod
     def compile_template(self, template: str, kwargs):
+        def get_keyword_or_compile_subtemplate(name: str):
+            if hasattr(self, name):
+                subtemplate = self.get_subtemplate(name)
+                return self.compile_template(subtemplate, kwargs)
+            return kwargs[name]
+
+
+
+
         format_blocks = cls.get_format_blocks(template)
         for block in format_blocks:
             contents = block.contents
