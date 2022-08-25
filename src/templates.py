@@ -1,10 +1,10 @@
 import collections
 import dataclasses
 import textwrap
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 
-class Formatter:
+class FormatUtils:
     """
     A formatter for handling code templates. Notably, will clean
     up the templates, and can handle repeating quantities.
@@ -28,12 +28,14 @@ class Formatter:
 
     Needless to say, the lists must be the same length.
     """
+
+
+    multifill_break_sequence = ";!;"
+
     @dataclasses.dataclass
     class format_block:
         regex_replace_target: str
         contents: str
-
-    multifill_break_sequence = ";!;"
     @staticmethod
     def clean_template(item: str) -> str:
         """Ensures templates which are defined in class are properly deindented"""
@@ -46,7 +48,7 @@ class Formatter:
         depth = 0
         start = 0
         position = 0
-        outputs: List[Formatter.format_block] = []
+        outputs: List[FormatUtils.format_block] = []
         while True:
             next_open_index = template.find("{", position)
             next_close_index = template.find("}", position)
@@ -71,16 +73,19 @@ class Formatter:
         if depth != 0:
             raise RuntimeError("Lacking close } for some open {")
         return outputs
-    def split_mulifill_block(self, block: str)->Tuple[str, str]:
-        start_index = block.find(self.multifill_break_sequence)
-        end_index = start_index + len(self.multifill_break_sequence)
+    @classmethod
+    def split_mulifill_block(cls, block: str)->Tuple[str, str]:
+        """Splits multifill into the join string and subtemplate."""
+        start_index = block.find(cls.multifill_break_sequence)
+        end_index = start_index + len(cls.multifill_break_sequence)
         return block[:start_index], block[end_index:]
     @classmethod
     def is_multifill_format_block(cls, block: str):
         return cls.multifill_break_sequence in block
-    def compile_multifill_block(self, contents: str, kwargs):
-        join_string, subtemplate = self.split_mulifill_block(contents)
-        subrequirements = self.get_format_blocks(subtemplate)
+    @classmethod
+    def compile_multifill_block(cls, contents: str, kwargs):
+        join_string, subtemplate = cls.split_mulifill_block(contents)
+        subrequirements = cls.get_format_blocks(subtemplate)
 
         requirement_names: List[str] = []
         requirement_list_features: List[List[str]] = []
@@ -110,8 +115,6 @@ class Formatter:
             outputs.append(compiled_template)
         final_output = join_string.join(outputs)
         return final_output
-
-
     def __init__(self, template: str):
         self.template = template
     def __call__(self, **kwargs):
@@ -131,6 +134,78 @@ class Formatter:
             output = output.replace(to_substitute, substitution)
         return output
 
+
+
+
+class Template(FormatUtils):
+    """
+    A template consists of a sequence of
+    format ready features, all expected to
+    go off together. The primary output
+    of a template will be the "template" class
+    parameter, once it has it's keywords filled in
+
+    It is possible to define additional class attributes,
+    however, consisting of things beginning with
+    the word template. In this case, these will act
+    as aliases for words seen in the primary template,
+    and can automatically substitute.
+
+    As in the formatter, it is the case calling is what
+    is required to use the class.
+    """
+    primary_template_name = "primary_template"
+    subtemplate_suffix_keyword = "subtemplate"
+
+    @classmethod
+    def get_user_subtemplate(cls, name: str)->str:
+        if not hasattr(cls, name):
+            raise AttributeError("No subtemlate attribute of name %s detected" % name)
+        item = getattr(cls, name)
+        if not isinstance(item, str):
+            raise AttributeError("Attempt to retrieve subtemplate of name %s which was not string" % name)
+        return item
+    @classmethod
+    def get_primary_template(cls)->str:
+        """Get the primary template, handling errors if it is not found."""
+        #A primary template matches the class definition of it's attribute name.
+        if cls.primary_template_name not in cls.__dict__:
+            raise AttributeError("Primary template not detected. No attribute of name %s" % cls.primary_template_name)
+        template = getattr(cls, cls.primary_template_name)
+        if not isinstance(template, str):
+            raise AttributeError("Primary template named %s is not a string" % cls.primary_template_name)
+        return template
+
+
+    def get_keyword_or_compile_subtemplate(self, name: str, kwargs: dict):
+        """Compiles a subtemplate if it can find one, or alternatively gets a kwarg from the input stream"""
+
+    @classmethod
+    def compile_template(self, template: str, kwargs):
+        format_blocks = cls.get_format_blocks(template)
+        for block in format_blocks:
+            contents = block.contents
+            if cls.is_multifill_format_block(contents):
+                join_string, subtemplate = cls.split_mulifill_block(contents)
+            else:
+
+    def __call__(self, **kwargs):
+        subtemplates = self.get_user_subtemplates()
+        def compile_template(name: str, kwargs: dict):
+            if template not
+
+    @classmethod
+    def get_template_dependencies(cls, name: str)->:
+        """fetch all keywords required by the particular template. """
+        template = getattr(cls, name)
+        format_blocks = cls.get_format_blocks(template)
+        for block in format_blocks:
+            contents = block.contents
+            if cls.
+
+
+
+
 class Class_Features_Template(Formatter):
     """
     A template for creating class features code blocks
@@ -142,7 +217,7 @@ class Class_Features_Template(Formatter):
     method_params_template = "{ , ;!; {method_param_name} : {method_param_type}}"
 
 
-    class_feautres_template = """\
+    primary_template = """\
     
     class {magic_name}_{name}:
         def __init__(self{ , ;!; {parent_feature_name}: {parent_feature_type}}):
