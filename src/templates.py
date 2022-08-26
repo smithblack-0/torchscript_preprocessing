@@ -24,7 +24,7 @@ class SubtemplateCompileFailure(Exception):
 class TemplateKeyNotFound(Exception):
     def __init__(self, name: str):
         self.name = name
-        message = "template or keyword of name %s was not found" %name
+        message = "\ntemplate or keyword of name '%s' was not found" %name
         super().__init__(message)
 
 class Template():
@@ -192,7 +192,7 @@ class Template():
             except TemplateKeyNotFound as err:
                 raise SubtemplateCompileFailure(item, template, err.name) from err
             except SubtemplateCompileFailure as err:
-                raise SubtemplateCompileFailure(item, template, err.name)
+                raise SubtemplateCompileFailure(item, template, err.name) from err
         elif cls.is_multifill(item):
             return cls.compile_multifill(item, kwargs)
         elif cls.is_keyword(item, kwargs):
@@ -266,7 +266,12 @@ class Template():
         if not cls.is_subtemplate(name):
             raise AttributeError("No attribute with name %s found: template does not exist" % name)
         template = getattr(cls, name)
-        return cls.compile_subtemplate(template, kwargs)
+        try:
+            return cls.compile_subtemplate(template, kwargs)
+        except TemplateKeyNotFound as err:
+            raise SubtemplateCompileFailure(name, template, err.name) from err
+        except SubtemplateCompileFailure as err:
+            raise SubtemplateCompileFailure(name, template, err.name) from err
 
 
 class ClassRewriteTemplate(Template):
