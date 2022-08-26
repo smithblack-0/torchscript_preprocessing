@@ -1,9 +1,8 @@
 import collections
 import dataclasses
+import regex
 import textwrap
-from typing import List, Tuple, Dict, Union
-
-
+from typing import List, Tuple, Dict, Union, Optional
 
 
 class SubtemplateCompileFailure(Exception):
@@ -39,7 +38,10 @@ class Template():
 
     Formatting is performed much as in standard python,
     with format blocks indicated by {}. Only keywords are allowed,
-    and they may be passed when beginning a format.
+    and they may be passed when beginning a format. It is the
+    case that a double bracket will act as an escape block as
+    well. That is, something like {{'a' : 1, 'b' : 2}} will not be substituted,
+    and will be changed into {'a' : 1, 'b' : 2} on format.
 
 
     -- deAliasing --
@@ -90,7 +92,11 @@ class Template():
     Alicia, whose mentor is Chris, has graduated in 2022 OMG!!
 
     """
+
+    format_string_capture_pattern = regex.compile(r"{(?:(?>[^{}]+)|(?R))*\}")
     multifill_break_string = ";!;"
+    format_substring_start_escape = "{{"
+    format_substring_end_escape = "}}"
     ### Is methods. Checks details which require bool answers
     @classmethod
     def is_subtemplate(cls, item: str):
@@ -120,50 +126,37 @@ class Template():
 
 
     ### Formatting Utilities. These do some of the lower level work
-
-
     @dataclasses.dataclass
-    class format_string_section:
-        original_format_string: str
-        format_string_contents: str
+    class formatting_substring_section:
+        raw_substring: str
+        trimmed_substring: str
 
     @staticmethod
     def clean_template(item: str) -> str:
         """Ensures templates which are defined in class are properly deindented"""
         return textwrap.dedent(item)
     @classmethod
-    def get_format_chunks(cls, template: str)->List[format_string_section]:
-        """Gets format names out of strings. Respects balancing"""
-        #Does a depth based analysis to find balanced top level {} blocks.
-        #Todo: Handle edge cases
-        depth = 0
-        start = 0
-        position = 0
-        outputs: List[Template.format_string_section] = []
-        while True:
-            next_open_index = template.find("{", position)
-            next_close_index = template.find("}", position)
-            if next_close_index == -1:
-                # Done with iteration
-                break
-            position = next_open_index if next_open_index < next_close_index \
-                                          and next_open_index != -1 else next_close_index
-            if position == next_open_index:
-                if depth == 0:
-                    start = position
-                depth += 1
-            else:
-                depth -= 1
+    def get_formatting_substrings(cls, template: str)->Tuple[str, List[formatting_substring_section]]:
+        """Gets format names out of strings. Respects balancing
 
-            position += 1
-            if depth == 0:
-                target = template[start:position]
-                contents = template[start + 1:position - 1]
-                block = cls.format_string_section(target, contents)
-                outputs.append(block)
-        if depth != 0:
-            raise RuntimeError("Lacking close } for some open {")
-        return outputs
+        :param template: A template from which to get the substrings
+        :returns: A escaped format string, and a list of the formatting substrings dataclasses
+        """
+        #Does a depth based analysis to find balanced top level {} blocks.
+        outputs: List[Template.formatting_substring_section] = []
+        escaped_template = template
+        format_substrings = regex.findall(cls.format_string_capture_pattern, template)
+        for substring in format_substrings:
+            trimmed_string = substring[1:-1]
+            if substring.startswith(cls.format_substring_start_escape) \
+                and substring.endswith(cls.format_substring_end_escape):
+                #Replace the escaped instance
+                escaped_template = escaped_template.replace(substring, trimmed_string)
+            else:
+                #Append the formatting substring for further work.
+                format_package = cls.formatting_substring_section(substring, trimmed_string)
+                outputs.append(format_package)
+        return escaped_template, outputs
 
     @classmethod
     def split_mulifill_block(cls, block: str) -> Tuple[str, str]:
@@ -186,7 +179,6 @@ class Template():
         """
         if cls.is_subtemplate(item):
             template = getattr(cls, item)
-            template = cls.clean_template(template)
             try:
                 return cls.compile_subtemplate(template, kwargs)
             except TemplateKeyNotFound as err:
@@ -203,10 +195,10 @@ class Template():
     def compile_subtemplate(cls, subtemplate: str, kwargs: Dict[str, str])->str:
         """Compiles a subtemplate, by looping through and handling it's formatting blocks"""
         substitution_buffer = {}
-        format_substrings = cls.get_format_chunks(subtemplate)
+        subtemplate, format_substrings = cls.get_formatting_substrings(subtemplate)
         for block in format_substrings:
-            content = block.format_string_contents
-            substitution_buffer[block.original_format_string] = cls.handle_formatting_substring(content, kwargs)
+            content = block.trimmed_substring
+            substitution_buffer[block.raw_substring] = cls.handle_formatting_substring(content, kwargs)
 
 
         output = subtemplate
@@ -222,10 +214,10 @@ class Template():
 
         feature_buffer = {}
         join_str, multifill_template = cls.split_mulifill_block(multifill)
-        multifill_subblocks = cls.get_format_chunks(multifill_template)
+        multifill_template, multifill_subblocks = cls.get_formatting_substrings(multifill_template)
         for subblock in multifill_subblocks:
-            content = subblock.format_string_contents
-            feature_buffer[subblock.original_format_string] = cls.handle_formatting_substring(content, kwargs)
+            content = subblock.trimmed_substring
+            feature_buffer[subblock.raw_substring] = cls.handle_formatting_substring(content, kwargs)
 
         #Create the list and string buffer, holding respectively
         #multifill lists and standard substitution strings.
@@ -266,6 +258,7 @@ class Template():
         if not cls.is_subtemplate(name):
             raise AttributeError("No attribute with name %s found: template does not exist" % name)
         template = getattr(cls, name)
+        template = cls.clean_template(template)
         try:
             return cls.compile_subtemplate(template, kwargs)
         except TemplateKeyNotFound as err:
@@ -374,17 +367,3 @@ class ClassRewriteTemplate(Template):
     @classmethod
     def format_class_features_template(cls, keywords: Dict[str, Union[str, List[str]]])->str:
         return cls.compile_template("class_feature_template", keywords)
-
-
-keywords = {}
-keywords["name"] = "test"
-
-keywords["class_field_name"] = []
-keywords["class_field_construction"] = []
-ClassRewriteTemplate.format_class_features_template(keywords)
-
-
-
-
-
-
