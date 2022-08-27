@@ -1,5 +1,7 @@
 import collections
 import dataclasses
+import enum
+
 import regex
 import textwrap
 from typing import List, Tuple, Dict, Union, Optional
@@ -18,6 +20,17 @@ class SubtemplateCompileFailure(Exception):
         self.name = template_name
         self.template = template
         super().__init__(message)
+
+class IllegalDirective(Exception):
+    """
+    Occurs when something the user
+    is specifying does not make any sense
+    """
+    def __init__(self, problem: str,  directive: str):
+        message = "\nA problem existed with a specified directive: %s" % problem
+        message += "The directive: \n%s" % directive
+        super().__init__(message)
+
 
 
 class TemplateKeyNotFound(Exception):
@@ -42,6 +55,27 @@ class Template():
     case that a double bracket will act as an escape block as
     well. That is, something like {{'a' : 1, 'b' : 2}} will not be substituted,
     and will be changed into {'a' : 1, 'b' : 2} on format.
+
+    -- dynamic formatting --
+
+    certain character groupings are capable of pulling text
+    dynamically out of nearby text. These commands are indicated below. They
+    may be found in any template feature, and will pull from the last examined
+    subtemplate.
+
+    !#!CAPTURE_PRIOR_UNTIL(str)
+    !#!CAPTURE_POST_UNTIL(str)
+
+    ------!#!CAPTURE_PRIOR_UNTIL(str) ----
+
+        Captures prior characters until the string in 'str' is found. Then replace
+        the command with the character. Do not include capture value.
+
+    ------- !#!CAPTURE_POST_UNTIL(str) -----
+        Captures characters after the formatting region until the given string
+        appears or until end of document. Then replace myself with the captured
+        values. Do not include capture value.
+
 
 
     -- deAliasing --
@@ -97,127 +131,214 @@ class Template():
     multifill_break_string = ";!;"
     format_substring_start_escape = "{{"
     format_substring_end_escape = "}}"
+
+    command_keyword = "!#!"
+    parameter_regex_template = "(?<={keyword}\()[^\s]+(?=\))"
+    replace_regex_template = r"{keyword}\([^\s]+\)"
+
+    capture_prior_until_keyword = command_keyword + "CAPTURE_PRIOR_UNTIL"
+    capture_post_until_keyword =  command_keyword + "CAPTURE_POST_UNTIL"
+
+    capture_prior_patterns = (
+        capture_prior_until_keyword,
+        regex.compile(parameter_regex_template.format(keyword=capture_prior_until_keyword)),
+        regex.compile(replace_regex_template.format(keyword=capture_prior_until_keyword))
+    )
+
+    capture_post_patterns = (
+        capture_post_until_keyword,
+        regex.compile(parameter_regex_template.format(keyword=capture_post_until_keyword)),
+        regex.compile(replace_regex_template.format(keyword=capture_post_until_keyword))
+    )
+
+    @dataclasses.dataclass
+    class formatting_directive:
+        """
+        Represents a single identified formatting directive
+        located within a broader source context
+        """
+        start_index: int
+        end_index: int
+        source_template: str
+        raw_substring: str
+        trimmed_substring: str
+
+    class dynamic_keywords(enum.Enum):
+        capture_prior_until = "#"
+
     ### Is methods. Checks details which require bool answers
     @classmethod
-    def is_subtemplate(cls, item: str):
+    def is_subtemplate(cls, item: formatting_directive)->bool:
         """Checks if item represents a subtemplate with the given name"""
         #The subtemplate exists if it is a part
         #of the class with the given name which is a string
-        if not hasattr(cls, item):
+        if not hasattr(cls, item.trimmed_substring):
             return False
-        if not isinstance(getattr(cls, item), str):
+        if not isinstance(getattr(cls, item.trimmed_substring), str):
             return False
         return True
     @classmethod
-    def is_multifill(cls, item: str):
+    def contains_command(cls, item: formatting_directive)->bool:
+        """Checks if there is a command which needs to be handled."""
+        keyword, _, _ = cls.capture_prior_patterns
+        if keyword in item.trimmed_substring:
+            return True
+
+        keyword, _, _ = cls.capture_post_patterns
+        if keyword in item.trimmed_substring:
+            return True
+        return False
+
+    @classmethod
+    def is_multifill(cls, item: formatting_directive)->bool:
         """Checks if item is a multifill template feature"""
         #A multifill exists if the multifill break sequence is present
         #within a format block.
-        if cls.multifill_break_string in item:
+        if cls.multifill_break_string in item.trimmed_substring:
             #Deliberately long for program clarity. Do not shorten to "return cls.multifill in item"
             return True
         return False
     @staticmethod
-    def is_keyword(item: str, kwargs: Dict[str,str]):
+    def is_keyword(item: formatting_directive, kwargs: Dict[str,str])->bool:
         """Checks if item is a keyword defined in the kwargs dictionary"""
-        if item in kwargs:
+        if item.trimmed_substring in kwargs:
             return True
         return False
 
 
     ### Formatting Utilities. These do some of the lower level work
-    @dataclasses.dataclass
-    class formatting_substring_section:
-        raw_substring: str
-        trimmed_substring: str
+
 
     @staticmethod
     def clean_template(item: str) -> str:
         """Ensures templates which are defined in class are properly deindented"""
         return textwrap.dedent(item)
+
     @classmethod
-    def get_formatting_substrings(cls, template: str)->Tuple[str, List[formatting_substring_section]]:
-        """Gets format names out of strings. Respects balancing
+    def get_formatting_directives(cls,
+                                  template: str,
+                                  context: Optional[formatting_directive]=None)->Tuple[str, List[formatting_directive]]:
+        """Gets format names out of strings. Respects balancing. Maintains
+        context information regarding what is being compiled in the broader template and
+        where.
 
         :param template: A template from which to get the substrings
         :returns: A escaped format string, and a list of the formatting substrings dataclasses
         """
+
         #Does a depth based analysis to find balanced top level {} blocks.
-        outputs: List[Template.formatting_substring_section] = []
+        outputs: List[Template.formatting_directive] = []
         escaped_template = template
-        format_substrings = regex.findall(cls.format_string_capture_pattern, template)
-        for substring in format_substrings:
+        for match in regex.finditer(cls.format_string_capture_pattern, template):
+            if context is None:
+                context_template = template
+                start_index, end_index = match.regs[0]
+            else:
+                start_index = context.start_index
+                end_index = context.end_index
+                context_template = context.source_template
+            substring = match.string[start_index:end_index]
             trimmed_string = substring[1:-1]
             if substring.startswith(cls.format_substring_start_escape) \
                 and substring.endswith(cls.format_substring_end_escape):
                 #Replace the escaped instance
                 escaped_template = escaped_template.replace(substring, trimmed_string)
             else:
-                #Append the formatting substring for further work.
-                format_package = cls.formatting_substring_section(substring, trimmed_string)
+                #Append the formatting package for further work.
+                format_package = cls.formatting_directive(start_index,
+                                                          end_index,
+                                                          context_template,
+                                                          substring,
+                                                          trimmed_string)
                 outputs.append(format_package)
         return escaped_template, outputs
 
     @classmethod
-    def split_mulifill_block(cls, block: str) -> Tuple[str, str]:
+    def split_multifill_directive(cls, block: formatting_directive) -> Tuple[str, str]:
         """
         Splits multifill into the join string and subtemplate.
         Returns Join_String, Subtemplate
         """
-        start_index = block.find(cls.multifill_break_string)
+        trimmed_string = block.trimmed_substring
+        start_index = trimmed_string.find(cls.multifill_break_string)
         end_index = start_index + len(cls.multifill_break_string)
         return block[:start_index], block[end_index:]
 
 
     ### Logical utilities. These control the overall flow ###
     @classmethod
-    def handle_formatting_substring(cls, item: str, kwargs: Dict[str, str]):
+    def handle_formatting_directive(cls, directive: formatting_directive, kwargs: Dict[str, str]):
         """
-        Handles a substring from a formatting instruction.
+        Handles a identified user formatting directive.
         Retrieves and compiled a template, a keyword, or other
-        instructions as appropriate
+        instructions as appropriate. Handles errors
+        elegantly for maximum information.
         """
-        if cls.is_subtemplate(item):
-            template = getattr(cls, item)
+        if cls.is_subtemplate(directive):
+            template = getattr(cls, directive.trimmed_substring)
             try:
                 return cls.compile_subtemplate(template, kwargs)
             except TemplateKeyNotFound as err:
-                raise SubtemplateCompileFailure(item, template, err.name) from err
+                raise SubtemplateCompileFailure(directive.trimmed_substring, template, err.name) from err
             except SubtemplateCompileFailure as err:
-                raise SubtemplateCompileFailure(item, template, err.name) from err
-        elif cls.is_multifill(item):
-            return cls.compile_multifill(item, kwargs)
-        elif cls.is_keyword(item, kwargs):
-            return kwargs[item]
+                raise SubtemplateCompileFailure(directive.trimmed_substring, template, err.name) from err
+        elif cls.contains_command(directive):
+            directive = cls.compile_command(directive)
+        elif cls.is_multifill(directive):
+            return cls.compile_multifill(directive, kwargs)
+        elif cls.is_keyword(directive, kwargs):
+            return kwargs[directive.trimmed_substring]
         else:
-            raise TemplateKeyNotFound(item)
+            raise TemplateKeyNotFound(directive.trimmed_substring)
     @classmethod
-    def compile_subtemplate(cls, subtemplate: str, kwargs: Dict[str, str])->str:
+    def compile_subtemplate(cls, directive: formatting_directive, kwargs: Dict[str, str])->str:
         """Compiles a subtemplate, by looping through and handling it's formatting blocks"""
+        subtemplate = getattr(cls, directive.trimmed_substring)
         substitution_buffer = {}
-        subtemplate, format_substrings = cls.get_formatting_substrings(subtemplate)
-        for block in format_substrings:
-            content = block.trimmed_substring
-            substitution_buffer[block.raw_substring] = cls.handle_formatting_substring(content, kwargs)
-
+        subtemplate, format_substrings = cls.get_formatting_directives(subtemplate)
+        for directive in format_substrings:
+            substitution_buffer[directive.raw_substring] = cls.handle_formatting_directive(directive, kwargs)
 
         output = subtemplate
         for key, value in substitution_buffer.items():
             output = output.replace(key, value)
         return output
+    @classmethod
+    def compile_command(cls, command_directive: formatting_directive):
+        """Handles dynamic commands which have been issued. """
+        substring = command_directive.trimmed_substring
+
+        keyword, parameter_pattern, replace_pattern = cls.capture_prior_patterns
+        if keyword in substring:
+            #Handle prior until preprocessing.
+
+            #Find all the cases, then begin compilation process.
+            #Do this by looking into the command directive for where
+            #the current format block starts, and then work backwards
+            #until the parameter is seen. When this happens, capture
+            #everything up to the parameter, then replace self with
+            #capture.
+            replacement_buffer = {}
+            parameters = regex.findall(parameter_pattern, substring)
+            to_replace = regex.findall(replace_pattern, substring)
+            for parameter, to_replace in zip(parameters, to_replace):
+
+
+
+            for match in regex.finditer(
+
 
     @classmethod
-    def compile_multifill(cls, multifill: str, kwargs: Dict[str, str]):
+    def compile_multifill(cls, multifill_directive: formatting_directive, kwargs: Dict[str, str]):
         """Compiles a multifill, by looping through and handling it's subfeatures then compiling"""
         #A multifill is compiled recusively as in a subtemplate. However, before assembly,
         #lists are weaved together and the answer is then joined.
 
         feature_buffer = {}
-        join_str, multifill_template = cls.split_mulifill_block(multifill)
-        multifill_template, multifill_subblocks = cls.get_formatting_substrings(multifill_template)
+        join_str, multifill_template = cls.split_multifill_directive(multifill_directive)
+        multifill_template, multifill_subblocks = cls.get_formatting_directives(multifill_template, multifill_directive)
         for subblock in multifill_subblocks:
-            content = subblock.trimmed_substring
-            feature_buffer[subblock.raw_substring] = cls.handle_formatting_substring(content, kwargs)
+            feature_buffer[subblock.raw_substring] = cls.handle_formatting_directive(subblock, kwargs)
 
         #Create the list and string buffer, holding respectively
         #multifill lists and standard substitution strings.
