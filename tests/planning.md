@@ -13,9 +13,9 @@ Planning
 * A class with inheritance will:
   * Peel off the MRO chain, and go compile the entries along it.
   * Get the prior class_features, if existing
-  * If class_features in prior_class_features or class_feature in self class:
+  * If class_features in prior_class_features or class_feature in cls class:
     * create blank partial class feature
-  * If class_features in self class:
+  * If class_features in cls class:
     * append features to class feature
   * If prior_class_features exists:
     * append features not violating MRO to class_feature

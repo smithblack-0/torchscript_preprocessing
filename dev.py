@@ -1,34 +1,30 @@
-from typing import List
+import regex
 
 
-test_extract = "   {self.{var_name} = {var_frame_name}, HfooH } stuff {hello}"
 
+regex_input_capture_template = r"([^{open}{close}]*+(?:(?R))*+[^{open}{close}]*)"
+regex_specific_capture_template = r"({name})"
+regex_general_capture = r"({open}){select}({close})"
 
-def get_format_names(template: str):
-    """Gets format names out of strings. Respects balancing"""
-    depth = 0
-    start = 0
-    position = 0
-    outputs: List[str] = []
-    while True:
-        next_open_index = template.find("{", position)
-        next_close_index = template.find("}", position)
-        if next_close_index == -1:
-            # Done with iteration
-            break
-        position = next_open_index if next_open_index < next_close_index\
-            and next_open_index != -1 else next_close_index
-        if position == next_open_index:
-            if depth == 0:
-                start = position
-            depth += 1
-        else:
-            depth -= 1
+open = "{"
+close = "}"
+subgroup_patterns = ("Start", None)
+subgroup_break = "-"
 
-        position += 1
-        if depth == 0:
-            stringslice = template[start+1:position-1]
-            outputs.append(stringslice)
-    return outputs
+input_capture = regex_input_capture_template.format(open=open, close=close)
+select = [input_capture if subgroup_pattern is None
+          else regex_specific_capture_template.format(name=subgroup_pattern)
+          for subgroup_pattern in subgroup_patterns]
+select = subgroup_break.join(select)
+pattern = regex_general_capture.format(open=open,
+                                       select=select,
+                                       close=close)
 
-print(get_format_names(test_extract))
+pattern = regex.compile(pattern)
+
+test_string = "{Start-stuf-f}"
+print(regex.findall(pattern, test_string))
+match = regex.match(pattern, test_string)
+print(match)
+
+if
