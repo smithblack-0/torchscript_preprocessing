@@ -10,42 +10,92 @@ cause various effects.
 """
 import unittest
 import difflib
+import pyparsing as pp
 from src import templates
 
 
+
+class test_Directive_Base(unittest.TestCase):
+    """
+    Test the ability of the directive parser to
+    make patterns given the class subdefinitions
+    """
+    def test_get_pattern_basic(self):
+        """Test a simple capture definition"""
+        class Mockup(templates.Directive):
+            directive_type = "Mockup"
+            select_indicators = ("{", "}")
+            token_magic_word = "MOCKUP"
+            subgroup_patterns = (None,)
+
+        string = "Ignore {catch this} {also_this}"
+        expectations = ["catch this", "also_this"]
+        pattern = Mockup.get_select_pattern()
+        for match in pattern.scan_string(string):
+            result = match[0]
+            _, content, _ = result
+            self.assertTrue(content in expectations)
+    def test_pattern_syntax_keywords(self):
+        class Mockup(templates.Directive):
+            directive_type = "Mockup"
+            select_indicators = ("<!", "!>")
+            token_magic_word = "MOCKUP"
+            subgroup_patterns = ("START", None,)
+
+        string = "Ignore <!START|-|This should be captured!> <!This should not be captured!>"
+        expectations = ["This should be captured"]
+        pattern = Mockup.get_select_pattern()
+        for match in pattern.scan_string(string):
+            result = match[0]
+            _, content, _ = result
+            self.assertTrue(content in expectations)
+    def test_get_directives(self):
+        """Test the ability of the parser to get directive instances given targets"""
+        class Mockup(templates.Directive):
+            directive_type = "Mockup"
+            select_indicators = ("{", "}")
+            token_magic_word = "MOCKUP"
+            subgroup_patterns = (None,)
+
+        string = " this should not be matches {this_should_be} this should not be {this_also_should_be}"
+        contents = ["this_should_be", "this_should_also_be"]
+        tokens = ["<####MOCKUP0####>", "<####MOCKUP1####>"]
+        reformatted, directives = Mockup.get_directives(string)
+        formatting = {}
+        for token, directive in directives:
+            self.assertTrue(token in tokens)
+            self.assertTrue(directive.content in contents)
+            formatting[token] = directive.entire_directive
+        restored_string = reformatted.format(**formatting)
+        print(restored_string)
+        print(string)
+        self.assertTrue(restored_string == string)
+
 #### Base template tests ####
-class test_get_formatting_substrings_interactions(unittest.TestCase):
+class test_DirectiveParser(unittest.TestCase):
 
     """
-    Test the ability of the get formatting substring
-    method to reliably get the chunks within '{}' while
-    handling errors.
-    """
-    def test_get_basic_strings_works(self):
-        """Tests if basic selection works"""
-        basic_selection_string = "random text{select} more random select {also_select}"
-        raw_extracted_results = ['{select}', '{also_select}']
-        trimmed_results = ['select', 'also_select']
+    Test the ability of the directive
+    parser to perform its job. This consists of
 
-        _, format_substrings = templates.Template.get_formatting_directives(basic_selection_string)
-        self.assertTrue(len(format_substrings) == len(raw_extracted_results))
-        for substring, raw, trimmed in zip(format_substrings, raw_extracted_results, trimmed_results):
-            self.assertTrue(substring.raw_substring == raw, "Selection did not match")
-            self.assertTrue(substring.trimmed_substring == trimmed, "Selection did not match")
-    def test_escape_char_works(self):
-        """The format escape char for python, using { }, is doubling up as {{ }}. Check this works"""
-        escape_string =" This string has an escape. The following should not be noticed {{Do not notice}}"
-        expected_escaped_string = " This string has an escape. The following should not be noticed {Do not notice}"
-        revised_template, format_substrings = templates.Template.get_formatting_directives(escape_string)
-        self.assertTrue(len(format_substrings) == 0, "Did not ignore escape characters")
-        self.assertTrue(revised_template==expected_escaped_string)
-    def test_nested_strings_work(self):
-        """Test if nested escape chars work properly."""
-        escape_nested = "This has nested { internal {item { subitem}}}, {item}"
-        expected = ["{ internal {item { subitem}}}", "{item}"]
-        _, format_substrings = templates.Template.get_formatting_directives(escape_nested)
-        for result, expectation in zip(format_substrings, expected):
-            self.assertTrue(result.raw_substring==expectation, "Result and expectation do not match")
+    #Identifying when a directive is in the provided string
+    #Extracting and parsing the directive, then returning the result and formatting features
+    """
+
+
+    def test_make_pattern(self):
+        pattern = self.Mockup.get_select_pattern()
+        string = "this should not be matches {thisshouldbe} this should not be {this_also_should_be}"
+        results = ["thisshouldbe", "this_also_should_be"]
+        for match in pattern.scan_string(string):
+             result = match[0]
+             feature = result[1]
+             print(feature)
+             self.assertTrue(feature in results)
+
+
+
+
 
 
 class test_base_Template(unittest.TestCase):
