@@ -243,7 +243,7 @@ class Directive():
             * A escaped example of string. Matching directives are replaced with a token
             * A dictionary mapping tokens to instances containing the disassembled features
         """
-
+        print()
         if predicate is None:
             predicate = lambda x : True
 
@@ -351,7 +351,8 @@ class NativeDirectiveParser(Directive):
     {} edge delimiter
     """
     select_indicators = ("{", "}")
-
+    def __init__(self, *args):
+        super().__init__(*args)
 
 class EscapeDirective(Directive):
     """
@@ -383,6 +384,9 @@ class EscapeDirective(Directive):
                                for token, directive in directives.items()
                                }
         return output_string, token_map
+    def __init__(self, *args):
+        super().__init__(*args)
+
 
 class Lookup(NativeDirectiveParser):
     """
@@ -412,6 +416,8 @@ class Lookup(NativeDirectiveParser):
             else:
                 raise TemplateKeyNotFound(directive.content, directive)
         return output_string, formatting
+    def __init__(self):
+        super()
 
 #### ADVANCED LANGUAGE ####
 #

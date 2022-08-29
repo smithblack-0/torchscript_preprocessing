@@ -57,6 +57,8 @@ class test_Directive_Base(unittest.TestCase):
             token_magic_word = "MOCKUP"
             subgroup_patterns = (None,)
 
+        print(Mockup.__name__)
+
         string = " this should not be matches {this_should_be} this should not be {this_also_should_be}"
         contents = ["this_should_be", "this_should_also_be"]
         tokens = ["<####MOCKUP0####>", "<####MOCKUP1####>"]
