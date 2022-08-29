@@ -265,7 +265,7 @@ class Directive():
             content = string[content_startat:content_endat]
             entire = string[startat:endat]
             token = cls.get_token(token_counter)
-            directive = Directive(token,
+            directive = cls(token,
                                   entire,
                                   open_str,
                                   content,

@@ -64,7 +64,7 @@ class test_Directive_Base(unittest.TestCase):
         tokens = ["<####MOCKUP0####>", "<####MOCKUP1####>"]
         reformatted, directives = Mockup.get_directives(string)
         formatting = {}
-        for token, directive in directives:
+        for token, directive in directives.items():
             self.assertTrue(token in tokens)
             self.assertTrue(directive.content in contents)
             formatting[token] = directive.entire_directive
