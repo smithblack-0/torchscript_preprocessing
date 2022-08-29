@@ -351,7 +351,7 @@ class FormattingEscapeDirective(Directive):
         #Place escaped content into position.
         start, end = cls.formatting_select_indicators
         revised_string, directives = cls.get_directives(string)
-        revised_string = parser(Context, revised_string)
+        revised_string = parser(context, revised_string)
         output_string = revised_string.format({token : start+ directive.content + end
                                for token, directive in directives.items()
                                })
@@ -378,6 +378,7 @@ class FormattingKeywordDirective(Directive):
                parser: Callable[[Context,str], str]) ->str:
         predicate = lambda directive: directive.content in context.keywords
         revised_string, directives = cls.get_directives(string, predicate)
+        revised_string = parser(context, revised_string)
         formatting = {}
         for token, directive in directives.items():
             formatting[token] = context.keywords[directive.content]
@@ -508,6 +509,15 @@ class ReplicateIndent(Directive):
     Replaces itself with the indent up
     to the prior context region, starting
     from the front of the token definition.
+
+    If placed in a raw template, will function
+    as expected. If placed in a formatting
+    subblock, will begin scanning at the start
+    of the subblock and will then work backwards.
+
+    The raw command is
+
+    <!!ReplicateIndent!!>
     """
     directive_type = "ReplicateIndent"
     token_magic_word= "REPINDENT"
@@ -520,253 +530,24 @@ class ReplicateIndent(Directive):
                string: str,
                parser: Callable[[Context,str], str]) ->str:
 
-        revision_string, directives = cls.get_directives()
-
-        source = context.source_string
-        start = context.start_token_loc
-        if start is None:
-
-
-
-
-class formatting_directive:
-    """
-    A formatting directive represents a distinct
-    identified formatting subregion which is located
-    within a broader template.
-
-    The class is both a dataclass, and an associated
-    method designed to make the dataclass in the
-    first place. It should not be directly initialized.
-
-    The dataclass contains     raw data on the start
-    and end location of the formatting region,
-    the source template, and finally the contents of the
-    region as a raw substring, and a substring with the
-    formatting {} trimmed off.
-
-    It is passed around once identified within various other classes.
-    """
-
-    #Class formatting properties. May be modified to change capture behavior
-
-    formatting_block_indicators = ("{", "}")
-    formatting_escape_indicators = ("{{", "}}")
-    regex_ignore_balancing_template = r"(?:(?>[^{open_string}{closed_string}]+)|(?R))*"
-    regex_pattern_template = r"{open_string}{ignore_balancing}{closed_string}"
-
-    formatting_regex_capture_pattern =r"{(?:(?>[^{}]+)|(?R))*\}"
-
-    #Instance Properties
-    start_index: int
-    end_index: int
-    source_template: str
-    raw_substring: str
-    trimmed_substring: str
-    @classmethod
-    def get_regex_capture_pattern(cls):
-        """Gets the appropriate regex capture pattern."""
-        open, close = cls.formatting_block_indicators
-        ignore_balancing = cls.regex_ignore_balancing_template.format(open_string=open,
-                                                                       close_string = close)
-        regex_pattern = cls.regex_pattern_template.format(openg_string = open,
-                                                           close_string = close,
-                                                           ignore_balancing=ignore_balancing)
-        return regex_pattern
-    @classmethod
-    def get_directives(cls, string: str)->Tuple[str, List["formatting_directive"]]:
-        """
-        Gets a example of the properly escaped template,
-        along with a list of the detected formatting directives.
-
-        :param string: The string to look through for formatting directives
-        :returns:
-            A string, consisting of the original template with any formatting escapes replaced
-            A list, consisting of any found formatting directives.
-        """
-        return cls.get_directives_from_template(string)
-    def get_directives_with_current_context(self, string: str)->Tuple[str, List["formatting_directive"]]:
-        """
-        Gets an example of a string with formatting blocks escaped,
-        along with a list consisting of all formatting directives found
-        within it.
-
-        This is designed for recursion. The broader context, where it
-        was found in the broader template, is maintained.
-        :param string: The string to get info from
-        :returns:
-            A string, consisting of the original template with any formatting escapes replaced
-            A list, consisting of any found formatting directives.
-        """
-        return self.get_directives_from_template(string, self)
-
-    @classmethod
-    def get_directives_from_template(cls,
-                                  template: str,
-                                  context: Optional["formatting_directive"]=None)->Tuple[str, List[formatting_directive]]:
-        """Gets format names out of strings. Respects balancing. May
-        be passed a context directive to inherit it's start
-        and end points, and broader template, from.
-
-        :param template: A template from which to get the substrings
-        :returns: A escaped format string, and a list of the formatting substrings dataclasses
-        """
-
-        #Does a depth based analysis to find balanced top level {} blocks.
-        outputs: List["formatting_directive"] = []
-        escaped_template = template
-        pattern = cls.get_regex_capture_pattern()
-        start_escape, end_escape = cls.formatting_escape_indicators
-        for match in regex.finditer(pattern, template):
-            if context is None:
-                context_template = template
-                start_index, end_index = match.regs[0]
+        revision_string, directives = cls.get_directives(string)
+        formatting = {}
+        for token, directive in directives.items():
+            if context.start_token_loc is None:
+                # Handle raw replicate indent. If someone wants to use
+                # one for whatever reason???
+                endpoint = revision_string.index(token)
             else:
-                start_index = context.start_index
-                end_index = context.end_index
-                context_template = context.source_template
-            substring = match.string[start_index:end_index]
-            trimmed_string = substring[1:-1]
-            if substring.startswith(start_escape) \
-                and substring.endswith(end_escape):
-                #Replace the escaped instance
-                escaped_template = escaped_template.replace(substring, trimmed_string)
-            else:
-                #Append the formatting package for further work.
-                format_package = formatting_directive(start_index,
-                                                      end_index,
-                                                      context_template,
-                                                      substring,
-                                                      trimmed_string)
+                endpoint = context.start_token_loc
+            startpoint = revision_string.rfind("\n", 0, endpoint)
+            if startpoint == -1:
+                #Hit start of line
+                startpoint = 0
+            indent_string = revision_string[startpoint:endpoint]
+            formatting[token] = indent_string
+        output_string = revision_string.format(**formatting)
+        return output_string
 
-                outputs.append(format_package)
-        return escaped_template, outputs
-
-    def __init__(self,
-                 start_index: int,
-                 end_index: int,
-                 source_template: str,
-                 raw_substring: str,
-                 trimmed_substring: str
-                 ):
-        self.start_index = start_index
-        self.end_index = end_index
-        self.source_template = source_template
-        self.raw_substring = raw_substring
-        self.trimmed_substring = trimmed_substring
-
-class command_directive():
-    """
-    A command directive is some sort of instruction
-    to execute a command.
-
-    Commands generally are little instructions
-    that do something based on the surrounding
-    content of a string.
-
-    Command directives come along with them information
-    on the context as to where the start and end of
-    the current formatting region is, along with
-    other environmental info.
-    """
-
-    command_indicators = ("!#!", "!#!")
-    regex_template = r"(?>{open})([\s\S]*)(?={close})"
-    #Instance properties
-
-    prior_start_index: int
-    next_resume_index: int
-    source_template: str
-
-    ### class only methods. Not data ###
-    @classmethod
-    def is_command_in_string(cls, string: str)->bool:
-        """Returns whether or not we saw anything looking like a command in the string"""
-        open, close = cls.command_indicators
-        if open in string and close in string:
-            return True
-        return False
-
-    @classmethod
-    def get_regex_capture_pattern(cls)->str:
-        """Gets the appropriate regex capture pattern."""
-        open, close = cls.command_indicators
-        regex_pattern = cls.regex_template.format(open=open, close=close)
-        return regex_pattern
-
-    @classmethod
-    def get_commands_from_string(cls, string: str)->List["command_directive"]:
-        """
-
-        Gets all detected commands from within the provided
-        string. Returns a list of command directives
-
-        :return:
-        """
-
-        pattern = cls.get_regex_capture_pattern()
-        for match in regex.finditer(pattern, string):
-
-
-
-    ### Instance features. Data ###
-
-    def __init__(self,
-                 prior_start_index: int,
-                 next_resume_index: int,
-                 source_template: str
-                 ):
-        self.prior_start_index = prior_start_index
-        self. next_resume_index = next_resume_index
-        self.source_template = source_template
-
-class CommandParser():
-    """
-    Parses commands which are issued to the program. Replaces
-    commands with results where found
-    """
-    #This is not particulary sophisticated, but
-    #it need not be. We simply have a parse
-    #function, recognition if
-    #
-
-    command_start_keyword = "!#!"
-
-    class Command():
-        """An abstract class meant to indicate a command and what to do about it"""
-
-
-        @classmethod
-        def is_in_template(cls, template: str):
-            raise NotImplementedError("Do not use command directly")
-        @classmethod
-        def execute_command(cls, template: str)->str:
-            raise NotImplementedError("Do not use command directly")
-    class Capture(Command):
-        """
-        The capture command comes in three
-        parts, linked together using -.
-
-        These parts are the command itself,
-        the direction, and what to go to
-        """
-
-
-
-    class CapturePrior(Command):
-
-
-    Captures = ("CP", "CN", )
-    class Capture_Directive():
-
-        Capture_Previous = "CP"
-        Capture_Next = "CN"
-
-    command_indication = "!#!"
-    parameters_indication = ("\(", "\)")
-
-
-    def parse
 
 
 class Template():
