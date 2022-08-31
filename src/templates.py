@@ -197,20 +197,22 @@ class Directive():
         #subgrammer feature, we append it
         #along with a suppressed join block.
 
-        open, close = cls.select_indicators
+        open_delimiter, close_delimiter = cls.select_indicators
         subgroup_delimitor = cls.subgroup_delimiter
-        pattern = pp.Literal(open)
-        for i, grammer in enumerate(cls.subgroup_patterns):
-            # Handle delimiter
-            if i > 0:
-                pattern = pattern + pp.Suppress(pp.Literal(subgroup_delimitor))
-
-            # Handle grammer case
+        subgroups = cls.subgroup_patterns
+        pattern = pp.Literal(open_delimiter)
+        ignore_recursion = pp.Literal(open_delimiter) + ... + pp.Literal(close_delimiter)
+        for i in range(len(subgroups)-1):
+            grammer = subgroups[i]
             if grammer is None:
-                pattern = pattern + ...  # Capture useful info
+                pattern = pattern + pp.SkipTo(subgroup_delimitor, ignore=ignore_recursion)
             else:
-                pattern = pattern + pp.Suppress(pp.Literal(grammer))  # Part of syntax, but not parameters.
-        pattern = pattern + pp.Literal(close)
+                pattern = pattern + pp.Suppress(pp.Literal(grammer))
+            pattern = pattern + pp.Suppress(pp.Literal(subgroup_delimitor))
+        if subgroups[-1] is None:
+            pattern = pattern + pp.SkipTo(close_delimiter, ignore=ignore_recursion) + pp.Literal(close_delimiter)
+        else:
+            pattern = pattern + pp.Literal(subgroups[-1]) + pp.Literal(close_delimiter)
         return pattern
 
     @classmethod
@@ -243,7 +245,6 @@ class Directive():
             * A escaped example of string. Matching directives are replaced with a token
             * A dictionary mapping tokens to instances containing the disassembled features
         """
-        print()
         if predicate is None:
             predicate = lambda x : True
 
@@ -251,6 +252,7 @@ class Directive():
         token_counter = 0
         token_map: Dict[Tuple[int,int], str] = {}
         directives_dict: Dict[str, "Directive"] = {}
+        end_at = 0
         for match in pattern.scan_string(string):
 
             #Get the required features.
@@ -277,6 +279,8 @@ class Directive():
                 token_map[(startat, endat)] = token
                 token_counter += 1
 
+
+
         #Update the string. Insert the tokens
         #by cutting out the relevant chunks
         #as we go along.
@@ -288,12 +292,17 @@ class Directive():
             update = unaltered_segment + token
             output_string += update
             pos = endat
-        if pos != len(output_string):
-            unaltered_segment = original_string[pos:len(output_string)]
+        if pos < len(original_string):
+            unaltered_segment = original_string[pos:len(original_string)]
             output_string += unaltered_segment
 
         return output_string, directives_dict
-
+    @classmethod
+    def reformat(cls, string: str, formatting: Dict[str, str])->str:
+        """Go through each dict pair in formatting. Replace key with value"""
+        for token, value in formatting.items():
+            string = string.replace(token, value)
+        return string
     @classmethod
     def compile_directives(self,
                context: Context,
@@ -351,8 +360,6 @@ class NativeDirectiveParser(Directive):
     {} edge delimiter
     """
     select_indicators = ("{", "}")
-    def __init__(self, *args):
-        super().__init__(*args)
 
 class EscapeDirective(Directive):
     """
@@ -369,7 +376,7 @@ class EscapeDirective(Directive):
     token_magic_word =  "ESCAPE"
     select_indicators = ("{{", "}}")
     final_indicators = ("{", "}")
-    subgroup_patterns = (None)
+    subgroup_patterns = (None,)
 
     @classmethod
     def compile_directives(cls,
@@ -384,8 +391,6 @@ class EscapeDirective(Directive):
                                for token, directive in directives.items()
                                }
         return output_string, token_map
-    def __init__(self, *args):
-        super().__init__(*args)
 
 
 class Lookup(NativeDirectiveParser):
@@ -416,8 +421,6 @@ class Lookup(NativeDirectiveParser):
             else:
                 raise TemplateKeyNotFound(directive.content, directive)
         return output_string, formatting
-    def __init__(self):
-        super()
 
 #### ADVANCED LANGUAGE ####
 #
@@ -468,7 +471,6 @@ class FormatMultifill(AdvancedDirectiveParser):
     """
     directive_type = "Multifill"
     token_magic_word= "MULTIFILL"
-    formatting_select_indicators = ("{", "}")
     subgroup_patterns = ("MULTIFILL", None, None)
 
     @classmethod
@@ -489,15 +491,19 @@ class FormatMultifill(AdvancedDirectiveParser):
             #fetch said keywords to perform a multifill
 
             subcontext = context.derive_from_directive(output_string, directive)
-            _, _, join_str, repeat_feature, _ = directive.subgroups
-            repeat_feature, claimed_keywords = Keyword.get_directives(repeat_feature)
+            _, join_str, repeat_feature, _ = directive.subgroups
+            repeat_feature, claimed_keywords = Lookup.get_directives(repeat_feature)
             join_str = parser(subcontext, join_str)
-            repeat_feature = parser(subcontext, join_str)
-            repeat_feature.format({token : directive.entire_directive for token, directive in claimed_keywords.items()})
+            repeat_feature = parser(subcontext, repeat_feature)
 
             #Having done standard parsing, go fetch lists and perform the multifill
 
-            keywords = {directive.content : context.keywords[directive.content] for directive in claimed_keywords.values()}
+            keywords = {}
+            for keyword, directive in claimed_keywords.items():
+                content = directive.content
+                if directive.content not in context.keywords:
+                    raise TemplateKeyNotFound(content, directive)
+                keywords[keyword] = context.keywords[content]
             list_keywords: Dict[str, List[str]] = {key : value for key, value in keywords.items() if isinstance(value, list)}
             string_keywords: Dict[str, str] = {key : value for key, value in keywords.items() if isinstance(value, str)}
 
@@ -511,12 +517,12 @@ class FormatMultifill(AdvancedDirectiveParser):
 
                 #Broadcast string keywords into list keywords
                 #Create subcases for str.join.
-                list_keywords.update({key : [value]*standard_length for key, value in string_keywords})
+                list_keywords.update({key : [value]*standard_length for key, value in string_keywords.items()})
 
                 instances = []
                 for i in range(standard_length):
                     subformatting = {key : value[i] for key, value in list_keywords.items()}
-                    instance = repeat_feature.format(**subformatting)
+                    instance = cls.reformat(repeat_feature, subformatting)
                     instances.append(instance)
 
                 #Join and store.
@@ -542,12 +548,12 @@ class ReplicateIndent(AdvancedDirectiveParser):
 
     The raw command is
 
-    <!!ReplicateIndent!!>
+    <!!REPLICATEINDENT!!>
     """
     directive_type = "ReplicateIndent"
     token_magic_word= "REPINDENT"
     formatting_select_indicators = ("<!!", "!>>")
-    subgroup_patterns = ("ReplicateIndent")
+    subgroup_patterns = ("REPLICATEINDENT",)
 
     @classmethod
     def compile_directives(cls,
@@ -568,10 +574,19 @@ class ReplicateIndent(AdvancedDirectiveParser):
             if startpoint == -1:
                 #Hit start of line
                 startpoint = 0
+            else:
+                #Do not include new line char.
+                startpoint += 1
             indent_string = output_string[startpoint:endpoint]
             formatting[token] = indent_string
         return output_string, formatting
 
+def Format(formatting_dict: Dict[str, str], string: str)->str:
+    """Performs replacement of items given by the formatting dict
+    with their corrosponding value"""
+    for key, value in formatting_dict.items():
+        string = string.replace(key, value)
+    return string
 
 def Parser(context: Context, string: str,)->str:
     """
@@ -604,7 +619,7 @@ def Parser(context: Context, string: str,)->str:
     for DirectiveParser in resolution_sequence:
         if DirectiveParser.string_has_match(string):
             try:
-                string, formatting = EscapeDirective.compile_directives(context, string, Parser)
+                string, formatting = DirectiveParser.compile_directives(context, string, Parser)
                 token_restore_stack.append(formatting)
             except SubtemplateCompileFailure as err:
                 raise err
@@ -612,7 +627,7 @@ def Parser(context: Context, string: str,)->str:
     #Substitute in tokens
     token_restore_stack.reverse()
     for token_formatting in token_restore_stack:
-        string = string.format(**token_formatting)
+        string = Format(token_formatting, string)
     return string
 
 
@@ -637,35 +652,32 @@ class Template():
     """
 
 
-
-    @staticmethod
-    def clean_template(item: str) -> str:
-        """Ensures templates which are defined in class are properly deindented"""
-        return textwrap.dedent(item)
-
     def __contains__(self, key: str)->bool:
         """Checks if we contain the indicated feature. Makes template behave something like a list"""
         if not hasattr(self, key):
             return False
-        if not isinstance(hasattr(self, key), str):
+        if not isinstance(getattr(self, key), str):
             return False
         return True
 
-    def __getitem__(self, item)->str:
+    def __getitem__(self, key)->str:
         """Allows for getting subtemplates by name, if they exist"""
-        return getattr(self, item)
+        if key not in self:
+            raise AttributeError("No subtemplate of name %s attached to class" % key)
+        return getattr(self, key)
 
-    def parse(self, name: str, keywords: Dict[str, str]):
+    def __init__(self, name: str):
         """
-        Parse the indicated subtemplate using
-        the keywords provided.
-
-        :param name: The name of the template to parse
-        :param keywords: The keywords to utilize.
-        :return: The parsed template.
+        Sets the template up to compile item with
+        name
+        :param name: The template to compile
         """
-        primary_template = self[name]
-        context = Context(keywords, self, primary_template)
-        return Parser(context, primary_template)
-
+        if name not in self:
+            raise AttributeError("No template of name %s found among attributes" %name)
+        self.__PrimaryTemplate = self[name]
+    def __call__(self, keywords: Dict[str, str])->str:
+        """Uses keywords to compile the given template, recursively"""
+        primary = self.__PrimaryTemplate
+        context = Context(keywords, self, primary)
+        return Parser(context, primary)
 
