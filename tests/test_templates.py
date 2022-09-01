@@ -41,6 +41,37 @@ class TestKit(unittest.TestCase):
             raise AssertionError(message)
 
 
+class test_Alias(TestKit):
+    """
+    Test the keyword alias unit. This
+    allows for substitution to be delayed
+    until later on.
+    """
+    def test_claim(self):
+        """Test the ability to setup an alias"""
+        test_context = templates.Context({"key1" : "potato", "key2" : "tomato"}, {}, "")
+        current_keywords = {"key1" : "potato", "key2" : "tomato"}
+        expected_keywords = {"key1" : "<$$TEST0$$>", "key2" : "<$$TEST1$$>"}
+        context, alias = templates.Keyword_Alias.claim_alias(test_context, "TEST")
+        self.assertTrue(expected_keywords == context.keywords)
+    def test_identify(self):
+        """Test the ability to identify aliases in a string"""
+        test_context = templates.Context({"key1" : "potato", "key2" : "tomato"}, {}, "")
+        current_keywords = {"key1" : "potato", "key2" : "tomato"}
+        context, alias = templates.Keyword_Alias.claim_alias(test_context, "TEST")
+        test_string = "item <$$TEST0$$> item "
+        expected_result = ["key1"]
+        self.assertTrue(expected_result==alias.find_aliases_in_string(test_string))
+    def test_substitute(self):
+        """Test the ability to substitute in an alias later"""
+        test_context = templates.Context({"key1" : "potato", "key2" : "tomato"}, {}, "")
+        current_keywords = {"key1" : "potato", "key2" : "tomato"}
+        context, alias = templates.Keyword_Alias.claim_alias(test_context, "TEST")
+        test_string = "item <$$TEST0$$> item"
+        expected_string = "item ham item"
+        output = alias.substitute(test_string, {"key1": "ham"})
+        self.assert_same_strings(output, expected_string)
+
 class unittest_Directive_Base(TestKit):
     """
     Test the ability of the directive parser to
@@ -84,8 +115,8 @@ class unittest_Directive_Base(TestKit):
             token_magic_word = "MOCKUP"
             subgroup_patterns = ("START", None,)
 
-        string = "Ignore <!START|=|<!This should be captured!> !> <!This should not be captured!>"
-        expectations = ["<!This should be captured!> "]
+        string = "Ignore <!START|=|<!This should be captured<!deeper!>!> !> <!This should not be captured!>"
+        expectations = ["<!This should be captured<!deeper!>!> "]
         pattern = Mockup.get_select_pattern()
         matches = list(pattern.scan_string(string))
         self.assertTrue(len(expectations) == len(matches))
@@ -148,7 +179,7 @@ class unittest_Directive_Subclasses(TestKit):
         test_string = "{keyword} No keyword {template}"
         context = templates.Context({"keyword" : "potato"}, {"template" : "tomato"}, test_string)
         output_string, formatting_dict = templates.Lookup.compile_directives(context, test_string, parser_mockup)
-        final_string = templates.Format(formatting_dict, output_string)
+        final_string = templates.Resolver.format(formatting_dict, output_string)
         self.assertTrue("potato" in final_string)
         self.assertTrue("tomato" in final_string)
 
@@ -166,12 +197,12 @@ class unittest_Directive_Subclasses(TestKit):
         expected_string = "{do_not_escape} stuff {do_escape}"
         context = templates.Context({},{}, test_string)
         output_string, formatting_dict = templates.EscapeDirective.compile_directives(context, test_string, parser_mockup)
-        output_string = templates.Format(formatting_dict, output_string)
+        output_string = templates.Resolver.format(formatting_dict, output_string)
     def test_format_multifill(self):
         """Test that the format multifill works when sitting by itself"""
 
         def parser_mockup(context, string: str)->str:
-            return string
+            return templates.Resolver.parse(context, string)
 
         people_a = ["Bob", "Jessy", "Eric"]
         people_b = ["George", "Harold", "Chris"]
@@ -183,7 +214,7 @@ class unittest_Directive_Subclasses(TestKit):
                                     {}, test_string)
 
         output_string, formatting_dict = templates.FormatMultifill.compile_directives(context, test_string, parser_mockup)
-        output_string = templates.Format(formatting_dict, output_string)
+        output_string = templates.Resolver.format(formatting_dict, output_string)
         self.assert_same_strings(output_string, expected_result)
     def test_ReplicateIndent_top_level(self):
         """Test replicate indent. This should, unsuprisingly, replicate an indent."""
@@ -207,7 +238,7 @@ class unittest_Directive_Subclasses(TestKit):
 
         context = templates.Context({}, {},test_string)
         output_string, formatting = templates.ReplicateIndent.compile_directives(context, test_string, parser_mockup )
-        output_string = templates.Format(formatting, output_string)
+        output_string = templates.Resolver.format(formatting, output_string)
         self.assert_same_strings(output_string, expected_result)
     def test_ReplicateIndent_restricted(self):
         """Test that replicate indent will go ahead and work properly when a region is restricted"""
@@ -230,23 +261,25 @@ class unittest_Directive_Subclasses(TestKit):
                                     start_token_loc=start_restricted,
                                     end_token_loc=end_restricted)
         output_string, formatting = templates.ReplicateIndent.compile_directives(context, test_string, parser_mockup )
-        output_string = templates.Format(formatting, output_string)
+        output_string = templates.Resolver.format(formatting, output_string)
         self.assert_same_strings(output_string, expected_string)
 
 class unittest_Parser(TestKit):
     """
     Test the parser and formatting functions
     """
-    def test_parser_simple(self):
+    def test_parse(self):
         test_string = textwrap.dedent("""
         this is a {keyword}
         this is an {{escape {keyword}}}
         this is a {template} feature
+        shouldduplicate<!!REPLICATEINDENT!!>
         """)
         expectation_string = textwrap.dedent("""
         this is a apple
-        this is an {escape {keyword} }
+        this is an {escape {keyword}}
         this is a banana feature
+        shouldduplicateshouldduplicate
         """)
 
 
@@ -255,17 +288,13 @@ class unittest_Parser(TestKit):
         context = templates.Context(keywords,
                                     template_mockup,
                                     test_string)
-        output = templates.Parser(context, test_string)
+        output = templates.Resolver.parse(context, test_string)
 
 
         try:
             self.assert_same_strings(output, expectation_string)
         except AssertionError as err:
             raise err
-    def test_complex_multifill(self):
-
-        multifill_string = "    <!!MULTIFILL|=|<!!REPINDENT!!>|=|{items}\n!>>"
-        multifill_exit
 
 class integration_test_Template(TestKit):
     """
@@ -275,7 +304,7 @@ class integration_test_Template(TestKit):
     """
     def test_basic_template(self):
         class mockup_template(templates.Template):
-            primary = textwrap.dedent(
+            primary = templates.Resolver.dedent(
                 """
                 This is the primary template output
                 
@@ -283,13 +312,26 @@ class integration_test_Template(TestKit):
                 The following is a multifill, and should be replaced: <!!MULTIFILL|=|WWW|=|{items}!!>
                 The following is a template lookup {template}
                 The following is a captured multifill:
-                    <!!MULTIFILL|=|<!!REPLICATEINDENT!!>|=|{items}\n !!>
-                """
+                    <!!MULTIFILL|=|<!!REPLICATEINDENT!!>|=|{items}\n!!>"""
             )
             template = "This is just an additional keyword puzzle: {keyword2}"
+
+        expectations = templates.Resolver.dedent(
+            """
+            This is the primary template output
+    
+            The following is a keyword, and should be replaced: apple
+            The following is a multifill, and should be replaced: AWWWBWWWC
+            The following is a template lookup This is just an additional keyword puzzle: grape
+            The following is a captured multifill:
+                A
+                B
+                C
+            """
+        )
 
         instance = mockup_template("primary")
         keywords = {"keyword" : "apple", "keyword2" : "grape"}
         keywords["items"] = ["A", "B", "C"]
         output = instance(keywords)
-        print(output)
+        self.assert_same_strings(output, expectations)

@@ -4,7 +4,7 @@ import enum
 import regex
 import textwrap
 import pyparsing as pp
-from typing import List, Tuple, Dict, Union, Optional, Callable
+from typing import List, Tuple, Dict, Union, Optional, Callable, Any
 
 
 class SubtemplateCompileFailure(Exception):
@@ -58,7 +58,7 @@ class Context():
     directive_type: str
     start_token_loc: int
     end_token_loc: int
-    keywords: Dict[str, str]
+    keywords: Dict[str, Union[str, List[str]]]
     templates: "Template"
     def derive_from_directive(self, source_string: str, directive: "Directive")->"Context":
         """
@@ -92,8 +92,26 @@ class Context():
             source_string,
             self
         )
+    def derive_from_keywords(self, keywords: Dict[str, Union[str, List[str]]])->"Context":
+        """
+        Create a context with the existing parameters, but with the
+        additional specification that certain keywords may be replaced with new values
+        :param keywords: The keywords to use from now on
+        :return: A new context
+        """
+        final_keywords = self.keywords.copy()
+        final_keywords.update(keywords)
+        return Context(
+            final_keywords,
+            self.templates,
+            self.source_string,
+            self,
+            self.start_token_loc,
+            self.end_token_loc
+        )
+
     def __init__(self,
-                 keywords: Dict[str, str],
+                 keywords: Dict[str, Union[str, List[str]]],
                  templates: "Template",
                  source_string: str,
                  parent: Optional["Context"] = None,
@@ -106,6 +124,84 @@ class Context():
         self.parent = parent
         self.start_token_loc = start_token_loc
         self.end_token_loc = end_token_loc
+
+class Keyword_Alias:
+    """
+    This is an aliasing class. It is designed
+    to enable some other class to take over
+    final substution of keywords from other
+    classes by aliasing the keyword in the context
+    and allowing later substitution of, and final resolution
+    of, keywords.
+
+    Logicwise, it essencially jukes out the keywords by ensuring
+    they will be strings, nothing else.
+    """
+    alias_indicators = ("<$$", "$$>")
+    @classmethod
+    def claim_alias(cls, context: Context, magic_word: str)->Tuple[Context, "Keyword_Alias"]:
+        """
+        Setup a new context with an alias connection.
+
+        :param context: The context to make an alias from
+        :param magic_word: A string unique to this kind of alias
+        :return: An Alias context, and a Keyword_Alias to manipulate the base string
+        """
+        original_keywords = context.keywords
+        updated_keywords = {}
+        alias_mappings = {}
+        open_delimitor, close_delimiter = cls.alias_indicators
+        for i, (key, value) in enumerate(original_keywords.items()):
+            alias_value = open_delimitor + magic_word + str(i) + close_delimiter
+            updated_keywords[key] = alias_value
+            alias_mappings[alias_value] = value
+
+        updated_context = context.derive_from_keywords(updated_keywords)
+        keyword_alias = cls(updated_keywords, alias_mappings)
+        return updated_context, keyword_alias
+    def find_aliases_in_string(self, string: str)->List[str]:
+        """
+        This method will look through a string and detect,
+        for each known alias feature, if that feature
+        is present in the string. It will return a list
+        of detected features.
+
+        :param string: The string to examine
+        :return: A list of dectected aliases
+        """
+
+
+        output = []
+        lookup_dict = dict(zip(self.keyword_updates.values(), self.keyword_updates.keys()))
+        for key in self.aliasing.keys():
+            if key in string:
+                original_keyword = lookup_dict[key]
+                output.append(original_keyword)
+        return output
+
+    def substitute(self, string: str, keywords: Optional[Dict[str, str]]=None)->str:
+        """
+        Using the stored alias knowledge,
+        substitute in corrosponding aliases into string.
+
+        If a keywords is specified, substitute that. Else,
+        substitute the original value
+
+        :param string: The string to substitute into
+        :param keywords: The keywords to substitute
+        :return: A restored string
+        """
+
+        updates = {self.keyword_updates[key] : value for key, value in keywords.items()}
+        restoration = self.aliasing.copy()
+        restoration.update(updates)
+        for key, value in restoration.items():
+            string = string.replace(key, value)
+        return string
+
+    def __init__(self, updated_keywords: Dict[str, str], alias_mappings: Dict[str, Any]):
+        self.keyword_updates = updated_keywords
+        self.aliasing = alias_mappings
 
 class Directive():
     """
@@ -197,22 +293,51 @@ class Directive():
         #subgrammer feature, we append it
         #along with a suppressed join block.
 
+        #Develop parsing literals for the delimiters
         open_delimiter, close_delimiter = cls.select_indicators
-        subgroup_delimitor = cls.subgroup_delimiter
+        open_delimiter = pp.Literal(open_delimiter)
+        close_delimiter = pp.Literal(close_delimiter)
+        subgroup_delimitor = pp.Literal(cls.subgroup_delimiter)
+
+        #Develop recursive ignore expression. This allows a nested
+        #command, such as <!!Do something|=|<!!REPLICATEINDENT!!>!!>
+        #to parse by finding and ignoring balanced delimiters
+
+        nested_skip = pp.Forward()
+        ignore_recursion = open_delimiter + pp.SkipTo(close_delimiter, ignore=nested_skip) + close_delimiter
+        nested_skip <<= ignore_recursion
+
+        ## Compile the subgroups
+        #
+        # For each subgroup, if the current element is
+        # none, we setup a skipto which captures all the internal
+        # content ignoring balanced delimitators and skipping to the next
+        # group delimitor. This captures everything in between
+        #
+        # Meanwhile, if it is not none, we just ignore the word as part
+        # of the command syntax, and thus uninteresting.
+        #
+        # We stop right before the last entry.
+
         subgroups = cls.subgroup_patterns
-        pattern = pp.Literal(open_delimiter)
-        ignore_recursion = pp.Literal(open_delimiter) + ... + pp.Literal(close_delimiter)
+        pattern = open_delimiter
         for i in range(len(subgroups)-1):
             grammer = subgroups[i]
             if grammer is None:
                 pattern = pattern + pp.SkipTo(subgroup_delimitor, ignore=ignore_recursion)
             else:
                 pattern = pattern + pp.Suppress(pp.Literal(grammer))
-            pattern = pattern + pp.Suppress(pp.Literal(subgroup_delimitor))
+            pattern = pattern + pp.Suppress(subgroup_delimitor)
+        #We finish the compilation manually.
+        #
+        # If the last element is none, skip to the ending delimiter.
+        # Else, just capture and suppress that element.
+
         if subgroups[-1] is None:
-            pattern = pattern + pp.SkipTo(close_delimiter, ignore=ignore_recursion) + pp.Literal(close_delimiter)
+            pattern = pattern + pp.SkipTo(close_delimiter, ignore=ignore_recursion)
         else:
-            pattern = pattern + pp.Literal(subgroups[-1]) + pp.Literal(close_delimiter)
+            pattern = pattern + pp.Suppress(pp.Literal(subgroups[-1]))
+        pattern = pattern + close_delimiter
         return pattern
 
     @classmethod
@@ -228,6 +353,12 @@ class Directive():
         """Get token representing 'number' entity"""
         startwith, endwith = cls.token_indicators
         return startwith + cls.token_magic_word + str(number)+ endwith
+
+
+    ### Useful functions. The following is designed to be utilized by the subclasses. ###
+
+
+
 
     @classmethod
     def get_directives(cls, string: str, predicate: Optional[Callable[["Directive"], bool]] = None)->Tuple[str, Dict[str, "Directive"]]:
@@ -312,6 +443,12 @@ class Directive():
         Compiles the directives in a particular incoming string.
         The current context and the parser function must be provided,
         allowing for compilation of subcomponents if desired.
+
+        It is important to note that this only claims, then compiles, the
+        individual issued tokens into a dictionary and then returns it. Due
+        to order of operations rearing it's head, final assembly occurs
+        further along. Conceptually, one can replace the tokens in the primary
+        string with the indicated values in the returned dictionary.
 
         Implimented by subclass.
         :param string:
@@ -471,8 +608,8 @@ class FormatMultifill(AdvancedDirectiveParser):
     """
     directive_type = "Multifill"
     token_magic_word= "MULTIFILL"
+    alias_magic_word= "ALIAS"
     subgroup_patterns = ("MULTIFILL", None, None)
-
     @classmethod
     def compile_directives(cls,
                context: Context,
@@ -492,18 +629,15 @@ class FormatMultifill(AdvancedDirectiveParser):
 
             subcontext = context.derive_from_directive(output_string, directive)
             _, join_str, repeat_feature, _ = directive.subgroups
-            repeat_feature, claimed_keywords = Lookup.get_directives(repeat_feature)
+            alias_magic_word = cls.token_magic_word + cls.alias_magic_word
+            aliased_subcontext, alias = Keyword_Alias.claim_alias(subcontext, alias_magic_word)
+
             join_str = parser(subcontext, join_str)
-            repeat_feature = parser(subcontext, repeat_feature)
+            template = parser(aliased_subcontext, repeat_feature)
+            keywords = {key : context.keywords[key] for key in alias.find_aliases_in_string(template)}
 
             #Having done standard parsing, go fetch lists and perform the multifill
 
-            keywords = {}
-            for keyword, directive in claimed_keywords.items():
-                content = directive.content
-                if directive.content not in context.keywords:
-                    raise TemplateKeyNotFound(content, directive)
-                keywords[keyword] = context.keywords[content]
             list_keywords: Dict[str, List[str]] = {key : value for key, value in keywords.items() if isinstance(value, list)}
             string_keywords: Dict[str, str] = {key : value for key, value in keywords.items() if isinstance(value, str)}
 
@@ -522,7 +656,7 @@ class FormatMultifill(AdvancedDirectiveParser):
                 instances = []
                 for i in range(standard_length):
                     subformatting = {key : value[i] for key, value in list_keywords.items()}
-                    instance = cls.reformat(repeat_feature, subformatting)
+                    instance = alias.substitute(template, subformatting)
                     instances.append(instance)
 
                 #Join and store.
@@ -562,50 +696,41 @@ class ReplicateIndent(AdvancedDirectiveParser):
                parser: Callable[[Context,str], str]) ->Tuple[str, Dict[str, str]]:
 
         output_string, directives = cls.get_directives(string)
+        original_string = context.source_string
         formatting = {}
         for token, directive in directives.items():
             if context.start_token_loc is None:
                 # Handle raw replicate indent. If someone wants to use
                 # one for whatever reason???
-                endpoint = output_string.index(token)
+                endpoint = original_string.index(token)
             else:
                 endpoint = context.start_token_loc
-            startpoint = output_string.rfind("\n", 0, endpoint)
+            startpoint = original_string.rfind("\n", 0, endpoint)
             if startpoint == -1:
                 #Hit start of line
                 startpoint = 0
             else:
                 #Do not include new line char.
                 startpoint += 1
-            indent_string = output_string[startpoint:endpoint]
+            indent_string = original_string[startpoint:endpoint]
             formatting[token] = indent_string
         return output_string, formatting
 
-def Format(formatting_dict: Dict[str, str], string: str)->str:
-    """Performs replacement of items given by the formatting dict
-    with their corrosponding value"""
-    for key, value in formatting_dict.items():
-        string = string.replace(key, value)
-    return string
-
-def Parser(context: Context, string: str,)->str:
+class Resolver():
     """
-    The parsers job is to go
-    through it's list, collect the formatting items
-    as it goes, and then reverse the process to
-    build the result.
-
-    :param string: The string to parse
-    :param context: A context package. Not used by parser, but passed into
-        directive parsers
-    :return: The parsed string
+    The resolver has two primary jobs.
+    These jobs are to be aware of and
+    impliment the order of operations,
+    and to perform final assembly
+    in the required manner for the
+    particular objective.
     """
-    #NOTE TO MAINTAINERS:
+    # The resolution_sequence
+    # list given below indicates what
+    # will go off and in what order.
     #
-    # In order to add new elements to the template
-    # language, all that you need to do is
-    # add it in this list. Make sure your
-    # priority is right, though.
+    # Simply adding a new entry to the
+    # list will add a new operator.
 
     resolution_sequence = (
         EscapeDirective,
@@ -613,22 +738,89 @@ def Parser(context: Context, string: str,)->str:
         ReplicateIndent,
         Lookup
     )
+    @staticmethod
+    def get_formatting(directives: Dict[str, Directive])->Dict[str, str]:
+        """
+        Turns a dictionary of directives into it's formatting equivalent.
+        Does this without modification.
 
-    #Parse everything moving forward
-    token_restore_stack = []
-    for DirectiveParser in resolution_sequence:
-        if DirectiveParser.string_has_match(string):
-            try:
-                string, formatting = DirectiveParser.compile_directives(context, string, Parser)
-                token_restore_stack.append(formatting)
-            except SubtemplateCompileFailure as err:
-                raise err
+        :param directives: A stack of directive
+        :return: A formatting dictionary
+        """
+        formatting = {}
+        for token, directive in directives.items():
+            formatting[token] = directive.entire_directive
+        return formatting
 
-    #Substitute in tokens
-    token_restore_stack.reverse()
-    for token_formatting in token_restore_stack:
-        string = Format(token_formatting, string)
-    return string
+    @classmethod
+    def dedent(cls, string: str)->str:
+        """
+        A context aware dedent function, this will remove
+        ugly and unnecessary spaces from a particular
+        string of text. It will ignore special characters that
+        are defined within commands.
+
+        :param string: The string to dedent
+        :return: A dedented string
+        """
+        token_restore_stack = []
+        for DirectiveParser in cls.resolution_sequence:
+            if DirectiveParser.string_has_match(string):
+                try:
+                    string, directives = DirectiveParser.get_directives(string)
+                    formatting = cls.get_formatting(directives)
+                    token_restore_stack.append(formatting)
+                except SubtemplateCompileFailure as err:
+                    raise err
+        string = textwrap.dedent(string)
+        token_restore_stack.reverse()
+        for formatting in token_restore_stack:
+            string = cls.format(formatting, string)
+        return string
+
+
+    @staticmethod
+    def format(formatting_dict: Dict[str, str], string: str)->str:
+        """Performs replacement of items given by the formatting dict
+        with their corresponding value"""
+        for key, value in formatting_dict.items():
+            string = string.replace(key, value)
+        return string
+    @classmethod
+    def parse(cls, context: Context, string: str,)->str:
+        """
+        The parsers job is to go
+        through it's list, collect the formatting items
+        as it goes, and then reverse the process to
+        build the result.
+
+        :param string: The string to parse
+        :param context: A context package. Not used by parser, but passed into
+            directive parsers
+        :return: The parsed string
+        """
+        #NOTE TO MAINTAINERS:
+        #
+        # In order to add new elements to the template
+        # language, all that you need to do is
+        # add it in this list. Make sure your
+        # priority is right, though.
+
+        #Parse everything moving forward
+        token_restore_stack = []
+        for DirectiveParser in cls.resolution_sequence:
+            if DirectiveParser.string_has_match(string):
+                try:
+                    string, formatting = DirectiveParser.compile_directives(context, string, cls.parse)
+                    token_restore_stack.append(formatting)
+                except SubtemplateCompileFailure as err:
+                    raise err
+
+        #Substitute in tokens
+        token_restore_stack.reverse()
+        for token_formatting in token_restore_stack:
+            string = cls.format(token_formatting, string)
+        return string
 
 
 
@@ -679,5 +871,4 @@ class Template():
         """Uses keywords to compile the given template, recursively"""
         primary = self.__PrimaryTemplate
         context = Context(keywords, self, primary)
-        return Parser(context, primary)
-
+        return Resolver.parse(context, primary)
